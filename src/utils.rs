@@ -3,6 +3,7 @@ use reqwest::Error;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use serde_json::Value;
+use tokio::time::{sleep, Duration};
 
 use base64::{Engine as _, engine::general_purpose};
 use bip39::Mnemonic;
@@ -128,6 +129,7 @@ pub async fn get_wallet_balance(address: &str) -> Result<HashMap<String, f64>, E
 
     Ok(balance_map)
 }
+
 pub async fn get_token_balance(
     address: &str,
     denom: &str,
@@ -183,11 +185,32 @@ pub async fn pool_swap(
     let account_number = account_data.account.account_number.parse::<u64>()?;
     let sequence = account_data.account.sequence.parse::<u64>()?;
     
+    // === Get price and simulate output ===
+    let (asset_a, asset_b) = get_pool_assets(pool_id).await?;
+    let amount_a: f64 = asset_a.token.amount.parse()?;
+    let amount_b: f64 = asset_b.token.amount.parse()?;
+    
+    // Detect which is input/output
+    let (reserve_in, reserve_out) = if asset_a.token.denom == input_token_denom {
+        (amount_a, amount_b)
+    } else {
+        (amount_b, amount_a)
+    };
+    
+    let estimated_out = simulate_swap_math(amount_in, reserve_in, reserve_out);
+    let min_out = (estimated_out * 0.995) * (1.0 - slippage_tolerance);
+    
+
+    // === Print the math ===
+    println!("\n📊 Swap Preview:");
+    println!("  Input:             {:.6} {}", amount_in, input_token_denom);
+    println!("  Estimated Output:  {:.6} {}", estimated_out, output_token_denom);
+    println!("  Slippage Tolerance: {:.2}%", slippage_tolerance * 100.0);
+    println!("  Min Output (set in tx): {:.6} {}\n", min_out, output_token_denom);
 
     // === Build MsgSwapExactAmountIn ===
     let token_in_amount = ((amount_in * 1_000_000.0).round()) as u64;
-    let token_out_min_amount =
-        ((amount_in * (1.0 - slippage_tolerance)) * 1_000_000.0).round() as u64;
+    let token_out_min_amount = (min_out * 1_000_000.0).round() as u64;
 
     let msg = MsgSwapExactAmountIn {
         sender: address.to_string().clone(),
@@ -302,7 +325,6 @@ pub async fn check_tx_success(
         return Ok(Some((false, Some(raw_log))));
     }
 }
-use tokio::time::{sleep, Duration};
 
 pub async fn wait_for_tx_confirmation(
     txhash: &str,
@@ -325,4 +347,38 @@ pub async fn wait_for_tx_confirmation(
 
     println!("❌ Timed out waiting for tx confirmation.");
     Ok((false, Some("Timeout: tx not confirmed within expected time".into())))
+}
+
+// pub async fn simulate_swap_output(
+//     pool_id: &str,
+//     token_in_denom: &str,
+//     token_out_denom: &str,
+//     amount_in: f64,
+// ) -> Result<f64, Box<dyn std::error::Error>> {
+//     let amount_in_u64 = (amount_in * 1_000_000.0).round() as u64;
+//     let token_in = format!("{}{}", amount_in_u64, token_in_denom);
+
+//     let url = format!(
+//         "https://osmosis-api.polkachu.com/osmosis/gamm/v1beta1/pools/{}/estimate_swap_exact_amount_in?token_in={}&token_out_denom={}",
+//         pool_id, token_in, token_out_denom
+//     );
+
+//     let res = reqwest::get(&url).await?.json::<serde_json::Value>().await?;
+//     println!("🧪 Raw simulation response: {}", serde_json::to_string_pretty(&res)?);
+
+//     let amount_out_str = res["token_out"]["amount"]
+//         .as_str()
+//         .ok_or("Missing token_out.amount")?;
+
+//     let amount_out = amount_out_str.parse::<f64>()? / 1_000_000.0;
+
+//     Ok(amount_out)
+// }
+
+
+pub fn simulate_swap_math(amount_in: f64, reserve_in: f64, reserve_out: f64) -> f64 {
+    let dx = amount_in * 1_000_000.0; // convert to u<token>
+    let numerator = reserve_out * dx * 997.0;
+    let denominator = reserve_in * 1000.0 + dx * 997.0;
+    (numerator / denominator) / 1_000_000.0 // back to base units
 }
