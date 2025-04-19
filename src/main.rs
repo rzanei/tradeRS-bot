@@ -25,7 +25,7 @@ async fn main() {
                 println!("Starting Osmosis Bot [Pool: {:?}] ...", pool_id);
 
                 // Trading parameters
-                let amount_token_a: f64 = 40.0; // Amount per trade (USDC)
+                let amount_token_a: f64 = 100.0; // Amount per trade (USDC)
                 let sell_percentage: f64 = 0.5;
                 let buy_percentage: f64 = 2.5;
                 let recover_percentage: f64 = 65.0;

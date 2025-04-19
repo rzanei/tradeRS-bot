@@ -9,3 +9,12 @@ tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = "0.4.40"
+osmosis-std = { git = "https://github.com/osmosis-labs/osmosis-rust", branch = "main" }
+dotenvy = "0.15"
+
+cosmrs = "0.22.0"
+bip39 = "2.1.0"
+bip32 = { version = "0.5.3", features = ["secp256k1"] }
+prost = "0.13.5"
+prost-types = "0.13.5"
+base64 = "0.22.1"

@@ -2,3 +2,4 @@
 src/strategy_1_start.rs
 logs/*
 Cargo.lock
+.env
