@@ -1,9 +1,9 @@
 use reqwest;
 use reqwest::Error;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use serde_json::Value;
-use tokio::time::{sleep, Duration};
+use std::collections::HashMap;
+use tokio::time::{Duration, sleep};
 
 use base64::{Engine as _, engine::general_purpose};
 use bip39::Mnemonic;
@@ -27,7 +27,7 @@ pub struct PoolAsset {
 #[derive(Debug, Clone, Deserialize)]
 pub struct Token {
     pub denom: String,
-    amount: String,
+    pub amount: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -184,29 +184,37 @@ pub async fn pool_swap(
 
     let account_number = account_data.account.account_number.parse::<u64>()?;
     let sequence = account_data.account.sequence.parse::<u64>()?;
-    
+
     // === Get price and simulate output ===
     let (asset_a, asset_b) = get_pool_assets(pool_id).await?;
     let amount_a: f64 = asset_a.token.amount.parse()?;
     let amount_b: f64 = asset_b.token.amount.parse()?;
-    
+
     // Detect which is input/output
     let (reserve_in, reserve_out) = if asset_a.token.denom == input_token_denom {
         (amount_a, amount_b)
     } else {
         (amount_b, amount_a)
     };
-    
+
     let estimated_out = simulate_swap_math(amount_in, reserve_in, reserve_out);
     let min_out = (estimated_out * 0.995) * (1.0 - slippage_tolerance);
-    
 
     // === Print the math ===
     println!("\n📊 Swap Preview:");
-    println!("  Input:             {:.6} {}", amount_in, input_token_denom);
-    println!("  Estimated Output:  {:.6} {}", estimated_out, output_token_denom);
+    println!(
+        "  Input:             {:.6} {}",
+        amount_in, input_token_denom
+    );
+    println!(
+        "  Estimated Output:  {:.6} {}",
+        estimated_out, output_token_denom
+    );
     println!("  Slippage Tolerance: {:.2}%", slippage_tolerance * 100.0);
-    println!("  Min Output (set in tx): {:.6} {}\n", min_out, output_token_denom);
+    println!(
+        "  Min Output (set in tx): {:.6} {}\n",
+        min_out, output_token_denom
+    );
 
     // === Build MsgSwapExactAmountIn ===
     let token_in_amount = ((amount_in * 1_000_000.0).round()) as u64;
@@ -244,7 +252,7 @@ pub async fn sign_tx_broadcast(
 
     let fee = Coin {
         denom: Denom::from_str("uosmo").unwrap(),
-        amount: 3000,
+        amount: 1000,
     };
 
     let gas_limit: u64 = 200_000;
@@ -277,28 +285,25 @@ pub async fn sign_tx_broadcast(
         .send()
         .await?;
 
-        let response_json: serde_json::Value = res.json().await?;
-        let txhash = response_json["tx_response"]["txhash"]
-            .as_str()
-            .ok_or("Missing txhash in response")?
-            .to_string();
-    
-        println!("✅ Broadcast txhash: {}", txhash);
+    let response_json: serde_json::Value = res.json().await?;
+    let txhash = response_json["tx_response"]["txhash"]
+        .as_str()
+        .ok_or("Missing txhash in response")?
+        .to_string();
+
+    println!("✅ Broadcast txhash: {}", txhash);
     Ok(txhash)
 }
 
 pub async fn check_tx_success(
     txhash: &str,
-) -> Result<Option<(bool, Option<String>)>, Box<dyn std::error::Error>> {
+) -> Result<Option<(bool, Option<String>, Option<(f64, f64)>)>, Box<dyn std::error::Error>> {
     let url = format!(
         "https://osmosis-api.polkachu.com/cosmos/tx/v1beta1/txs/{}",
         txhash
     );
 
-    let res = reqwest::Client::new()
-        .get(&url)
-        .send()
-        .await?;
+    let res = reqwest::Client::new().get(&url).send().await?;
 
     if !res.status().is_success() {
         let json: Value = res.json().await.unwrap_or_default();
@@ -317,12 +322,41 @@ pub async fn check_tx_success(
         .unwrap_or("")
         .to_string();
 
+    let mut tokens_in: Option<f64> = None;
+    let mut tokens_out: Option<f64> = None;
+
+    if let Some(events) = json["tx_response"]["events"].as_array() {
+        for event in events {
+            if event["type"] == "token_swapped" {
+                let vec_a = vec![];
+                let attrs = event["attributes"].as_array().unwrap_or(&vec_a);
+                for attr in attrs {
+                    if attr["key"] == "tokens_in" {
+                        let val = attr["value"].as_str().unwrap_or_default();
+                        if let Some(num) = val.split("uosmo").next() {
+                            tokens_in = Some(num.parse::<f64>().unwrap_or(0.0) / 1_000_000.0);
+                        }
+                    } else if attr["key"] == "tokens_out" {
+                        let val = attr["value"].as_str().unwrap_or_default();
+                        if let Some(num) = val.split("ibc/").next() {
+                            tokens_out = Some(num.parse::<f64>().unwrap_or(0.0) / 1_000_000.0);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     if code == 0 {
         println!("✅ Tx {} successful", txhash);
-        return Ok(Some((true, None)));
+        return Ok(Some((
+            true,
+            None,
+            Some((tokens_in.unwrap_or(0.0), tokens_out.unwrap_or(0.0))),
+        )));
     } else {
         println!("❌ Tx {} failed with code {}: {}", txhash, code, raw_log);
-        return Ok(Some((false, Some(raw_log))));
+        return Ok(Some((false, Some(raw_log), None)));
     }
 }
 
@@ -330,50 +364,32 @@ pub async fn wait_for_tx_confirmation(
     txhash: &str,
     max_attempts: u32,
     delay_secs: u64,
-) -> Result<(bool, Option<String>), Box<dyn std::error::Error>> {
+) -> Result<(bool, Option<String>, Option<(f64, f64)>), Box<dyn std::error::Error>> {
     for attempt in 1..=max_attempts {
-        println!("⏳ Checking tx ({}) attempt {}/{}...", txhash, attempt, max_attempts);
+        println!(
+            "⏳ Checking tx ({}) attempt {}/{}...",
+            txhash, attempt, max_attempts
+        );
 
         match check_tx_success(txhash).await? {
-            Some((true, _)) => return Ok((true, None)),
-            Some((false, Some(log))) => return Ok((false, Some(log))),
-            Some((false, None)) => return Ok((false, Some("Unknown failure".into()))),
+            Some((true, _, Some(amounts))) => return Ok((true, None, Some(amounts))),
+            Some((true, _, None)) => return Ok((true, None, None)), // <-- Handle success without amounts
+            Some((false, Some(log), _)) => return Ok((false, Some(log), None)),
+            Some((false, None, _)) => return Ok((false, Some("Unknown failure".into()), None)),
             None => {
-                // Tx not found yet — wait and try again
                 sleep(Duration::from_secs(delay_secs)).await;
             }
         }
     }
 
     println!("❌ Timed out waiting for tx confirmation.");
-    Ok((false, Some("Timeout: tx not confirmed within expected time".into())))
+    Ok((
+        false,
+        Some("Timeout: tx not confirmed within expected time".into()),
+        None,
+    ))
 }
 
-// pub async fn simulate_swap_output(
-//     pool_id: &str,
-//     token_in_denom: &str,
-//     token_out_denom: &str,
-//     amount_in: f64,
-// ) -> Result<f64, Box<dyn std::error::Error>> {
-//     let amount_in_u64 = (amount_in * 1_000_000.0).round() as u64;
-//     let token_in = format!("{}{}", amount_in_u64, token_in_denom);
-
-//     let url = format!(
-//         "https://osmosis-api.polkachu.com/osmosis/gamm/v1beta1/pools/{}/estimate_swap_exact_amount_in?token_in={}&token_out_denom={}",
-//         pool_id, token_in, token_out_denom
-//     );
-
-//     let res = reqwest::get(&url).await?.json::<serde_json::Value>().await?;
-//     println!("🧪 Raw simulation response: {}", serde_json::to_string_pretty(&res)?);
-
-//     let amount_out_str = res["token_out"]["amount"]
-//         .as_str()
-//         .ok_or("Missing token_out.amount")?;
-
-//     let amount_out = amount_out_str.parse::<f64>()? / 1_000_000.0;
-
-//     Ok(amount_out)
-// }
 
 
 pub fn simulate_swap_math(amount_in: f64, reserve_in: f64, reserve_out: f64) -> f64 {
@@ -382,3 +398,69 @@ pub fn simulate_swap_math(amount_in: f64, reserve_in: f64, reserve_out: f64) -> 
     let denominator = reserve_in * 1000.0 + dx * 997.0;
     (numerator / denominator) / 1_000_000.0 // back to base units
 }
+
+// This is the way back (Osmosis Complexity Layer)
+pub async fn simulate_swap_via_lcd(
+    msg_any: cosmrs::Any,
+    public_key: cosmrs::crypto::PublicKey,
+    sequence: u64,
+    account_number: u64,
+    signing_key: &SigningKey,
+) -> Result<f64, Box<dyn std::error::Error>> {
+    let tx_body = tx::Body::new(vec![msg_any.clone()], "", 0u32);
+
+    let fee = Coin {
+        denom: Denom::from_str("uosmo")?,
+        amount: 3000,
+    };
+
+    let gas_limit: u64 = 200_000;
+    let signer_info = SignerInfo::single_direct(Some(public_key), sequence);
+    let auth_info = tx::AuthInfo {
+        signer_infos: vec![signer_info],
+        fee: Fee::from_amount_and_gas(fee.clone(), gas_limit),
+    };
+
+    let sign_doc = SignDoc::new(
+        &tx_body,
+        &auth_info,
+        &cosmrs::tendermint::chain::Id::from_str("osmosis-1")?,
+        account_number,
+    )?;
+    let tx_raw = sign_doc.sign(&signing_key)?;
+
+    // === Simulate endpoint ===
+    let tx_bytes = tx_raw.to_bytes()?;
+    let base64_tx = general_purpose::STANDARD.encode(tx_bytes);
+
+    let simulate_url = "https://osmosis-api.polkachu.com/cosmos/tx/v1beta1/simulate";
+
+    let res = reqwest::Client::new()
+        .post(simulate_url)
+        .json(&serde_json::json!({ "tx_bytes": base64_tx }))
+        .send()
+        .await?;
+
+    let json: serde_json::Value = res.json().await?;
+
+    // Extract logs from simulation preview
+    if let Some(logs) = json["result"]["events"].as_array() {
+        for event in logs {
+            if event["type"] == "token_swapped" {
+                for attr in event["attributes"].as_array().unwrap_or(&vec![]) {
+                    if attr["key"] == "tokens_out" {
+                        let value = attr["value"].as_str().unwrap_or("");
+                        if value.contains("uosmo") {
+                            let amount_str = value.replace("uosmo", "");
+                            let amount = amount_str.parse::<f64>()? / 1_000_000.0;
+                            return Ok(amount);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Err("No swap result in simulation response".into())
+}
+
