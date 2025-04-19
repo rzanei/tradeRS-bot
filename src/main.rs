@@ -1,5 +1,7 @@
 use std::{io::{self, Write}, thread::sleep, time::Duration};
 
+use strategy_1_start::osmo_bot_start;
+
 mod utils;
 mod strategy_1_start;
 mod log_manager;
@@ -37,7 +39,7 @@ async fn main() {
                         println!("- sell_percentage: {}%", sell_percentage);
                         println!("- buy_percentage: {}%", buy_percentage);
                         println!("- recover_percentage: {}%", recover_percentage);
-                        println!("Ready to build and broadcast transaction (next step)!");
+                        osmo_bot_start(pool_id,  amount_token_a,  sell_percentage, buy_percentage,  recover_percentage).await;
                     }
                     Err(err) => {
                         eprintln!("Error fetching pool data: {}", err);

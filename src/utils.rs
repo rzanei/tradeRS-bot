@@ -1,5 +1,6 @@
 use reqwest::Error;
 use serde::Deserialize;
+use std::collections::HashMap;
 
 #[derive(Debug, Deserialize)]
 struct PoolAsset {
@@ -21,6 +22,17 @@ struct Pool {
 #[derive(Debug, Deserialize)]
 struct PoolResponse {
     pool: Pool,
+}
+
+#[derive(Debug, Deserialize)]
+struct Balance {
+    denom: String,
+    amount: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct BalancesResponse {
+    balances: Vec<Balance>,
 }
 
 pub async fn get_token_price_by_pool(pool_id: &str) -> Result<(), Error> {
@@ -47,4 +59,30 @@ pub async fn get_token_price_by_pool(pool_id: &str) -> Result<(), Error> {
     }
 
     Ok(())
+}
+
+
+pub async fn get_wallet_balance(address: &str) -> Result<HashMap<String, f64>, Error> {
+    let url = format!(
+        "https://osmosis-api.polkachu.com/cosmos/bank/v1beta1/balances/{}",
+        address
+    );
+
+    let res = reqwest::get(&url).await?.json::<BalancesResponse>().await?;
+
+    let mut balance_map = HashMap::new();
+
+    for balance in res.balances {
+        let amount: f64 = balance.amount.parse().unwrap_or(0.0);
+
+        let key = if balance.denom.contains('/') {
+            balance.denom.split('/').last().unwrap_or(&balance.denom).to_string()
+        } else {
+            balance.denom.clone()
+        };
+
+        balance_map.insert(key, amount);
+    }
+
+    Ok(balance_map)
 }
