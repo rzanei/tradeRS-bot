@@ -1,23 +1,30 @@
-use reqwest;
-use reqwest::Error;
+// Common Deps
+use std::str::FromStr;
+use bip39::{Language, Mnemonic};
+use std::env;
+use reqwest::{Error,Client};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use tokio::time::{Duration, sleep};
-
 use base64::{Engine as _, engine::general_purpose};
-use bip39::Mnemonic;
+
+// Cosmos Deps
 use cosmrs::{
     Coin, Denom,
     crypto::secp256k1::SigningKey,
     tx::{self, Fee, SignDoc, SignerInfo},
 };
-use osmosis_std::types::osmosis::{
-    gamm::v1beta1::MsgSwapExactAmountIn, poolmanager::v1beta1::SwapAmountInRoute,
-};
+use osmosis_std::types::osmosis::{ gamm::v1beta1::MsgSwapExactAmountIn, poolmanager::v1beta1::SwapAmountInRoute};
 use prost::Message;
-use reqwest::Client;
-use std::str::FromStr;
+
+
+// Solana Deps
+use ed25519_dalek_bip32::{DerivationPath, ExtendedSigningKey};
+use solana_client::nonblocking::rpc_client::RpcClient;
+use solana_sdk::{native_token::lamports_to_sol, pubkey::Pubkey, signature::{Keypair, Signature, Signer}, signer::SeedDerivable, transaction::Transaction
+};
+use spl_associated_token_account::get_associated_token_address;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct PoolAsset {
@@ -64,6 +71,7 @@ pub struct AccountWrapper {
     pub account: BaseAccount,
 }
 
+// COSMOS UTILS START
 pub async fn get_pool_assets(
     pool_id: &str,
 ) -> Result<(PoolAsset, PoolAsset), Box<dyn std::error::Error>> {
@@ -464,3 +472,31 @@ pub async fn simulate_swap_via_lcd(
     Err("No swap result in simulation response".into())
 }
 
+// SOLANA UTILS START 
+pub async fn sol_get_token_balance(
+    rpc_url: &str,
+    wallet_pubkey: &Pubkey,
+    token_mint: &Pubkey,
+) -> Result<f64, Box<dyn std::error::Error>> {
+    let client = RpcClient::new(rpc_url.to_string());
+    let ata = get_associated_token_address(wallet_pubkey, token_mint);
+
+    let balance = client
+        .get_token_account_balance(&ata)
+        .await.map(|b| b.ui_amount.unwrap_or(0.0))?;
+
+    Ok(balance)
+}
+
+pub async fn sol_get_sol_balance(
+    rpc_url: &str,
+    wallet_pubkey: &Pubkey,
+) -> Result<f64, Box<dyn std::error::Error>> {
+    let client = RpcClient::new(rpc_url.to_string());
+
+    let lamports = client.get_balance(wallet_pubkey).await?;
+    println!("🪙 Raw lamports: {}", lamports);
+
+    let sol = lamports_to_sol(lamports);
+    Ok(sol)
+}

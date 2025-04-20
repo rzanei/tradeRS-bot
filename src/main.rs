@@ -1,17 +1,24 @@
-use std::{io::{self, Write}, thread::sleep, time::Duration};
+use std::{
+    io::{self, Write},
+    thread::sleep,
+    time::Duration,
+};
 
-use strategy_1_start::osmo_bot_start;
+use jupiter_strategy_start::jup_bot_start;
+use osmosis_strategy_start::osmo_bot_start;
 
-mod utils;
-mod strategy_1_start;
+mod jupiter_strategy_start;
 mod log_manager;
+mod osmosis_strategy_start;
 mod trading_math;
+mod utils;
 
 #[tokio::main]
 async fn main() {
     loop {
         println!("Please Select an option");
-        println!("1. Start Osmosis Bot [USDC/ATOM] on Port: [9222]");
+        println!("1. Start Osmosis Bot [ATOM/OSMO]");
+        println!("2. Start Jupiter Bot [SOL/USDC]");
         println!("0. Exit");
 
         io::stdout().flush().unwrap();
@@ -39,12 +46,47 @@ async fn main() {
                         println!("- sell_percentage: {}%", sell_percentage);
                         println!("- buy_percentage: {}%", buy_percentage);
                         println!("- recover_percentage: {}%", recover_percentage);
-                        osmo_bot_start(pool_id,  amount_token_a,  sell_percentage, buy_percentage,  recover_percentage).await;
+                        osmo_bot_start(
+                            pool_id,
+                            amount_token_a,
+                            sell_percentage,
+                            buy_percentage,
+                            recover_percentage,
+                        )
+                        .await;
                     }
                     Err(err) => {
                         eprintln!("Error fetching pool data: {}", err);
                     }
                 }
+            }
+            "2" => {
+                let left_asset = "So11111111111111111111111111111111111111112";
+                let right_asset = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+
+                println!("Starting Jupiter Bot [{left_asset}/{right_asset}] ...");
+
+                // Trading parameters
+                let amount_token_a: f64 = 90.0;
+                let sell_percentage: f64 = 0.5;
+                let buy_percentage: f64 = 2.5;
+                let recover_percentage: f64 = 65.0;
+
+                println!("Running strategy with parameters:");
+                println!("- Assets: [{left_asset}/{right_asset}]");
+                println!("- amount_token_a: {}", amount_token_a);
+                println!("- sell_percentage: {}%", sell_percentage);
+                println!("- buy_percentage: {}%", buy_percentage);
+                println!("- recover_percentage: {}%", recover_percentage);
+                jup_bot_start(
+                    left_asset,
+                    right_asset,
+                    amount_token_a,
+                    sell_percentage,
+                    buy_percentage,
+                    recover_percentage,
+                )
+                .await;
             }
             "0" => {
                 println!("Exiting bot...");
