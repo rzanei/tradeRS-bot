@@ -4,7 +4,8 @@ use crate::{
     log_manager::{load_trade_log, log_trade, read_log, write_log},
     trading_math::{decreased_amount_by_percentage, increased_amount_by_percentage},
     utils::{
-        check_tx_success, get_pool_assets, get_token_balance, get_token_price_by_pool, get_wallet_balance, pool_swap, sign_tx_broadcast, simulate_swap_math, simulate_swap_via_lcd, sol_get_sol_balance, sol_get_token_balance, wait_for_tx_confirmation
+        sol_get_sol_balance,
+        // jupiter_swap, // <-- This should be your Jupiter integration (swap executor)
     },
 };
 use std::{env, str::FromStr};
@@ -46,56 +47,50 @@ pub async fn jup_bot_start(
                 .unwrap();
                 println!("Account Balance: {:?}", asset_b_balance);
 
-                // if asset_b_balance > buy_amount {
-                //     let (account_number, sequence, msg) = pool_swap(
-                //         &address,
-                //         pool_id,
-                //         &asset_b.token.denom.to_string(),
-                //         &asset_a.token.denom.to_string(),
-                //         buy_amount,
-                //         0.001,
-                //     )
-                //     .await
-                //     .unwrap();
-                //     let tx_hash =
-                //         sign_tx_broadcast(msg, public_key, sequence, account_number, &signing_key)
-                //             .await
-                //             .unwrap();
-                //     let (success, log, maybe_trade_amounts) =
-                //         wait_for_tx_confirmation(&tx_hash, 10, 3).await.unwrap();
+                if asset_b_balance > buy_amount {
+                    println!("\u{1F4B5} Attempting to buy {} worth of {}", buy_amount, right_asset);
 
-                //     if success {
-                //         let (amount_token_a, amount_token_b) =
-                //             maybe_trade_amounts.unwrap_or((0.0, 0.0));
-                //         log_trade(
-                //             &format!("logs/pool_{pool_id}_trade_history.json"),
-                //             &mut trade_log,
-                //             "buy",
-                //             amount_token_a,
-                //             amount_token_b,
-                //         )
-                //         .unwrap();
+                    // let swap_result = jupiter_swap(
+                    //     &sol_keypair,
+                    //     buy_amount,
+                    //     left_asset,
+                    //     right_asset,
+                    //     rpc_url,
+                    // )
+                    // .await;
 
-                //         write_log(
-                //             &format!("logs/pool_{pool_id}_value.txt"),
-                //             &amount_token_a.to_string(),
-                //         )
-                //         .unwrap();
-                //     } else {
-                //         println!("🚫 Transaction failed or not confirmed: {:?}", log);
-                //     }
+                    // match swap_result {
+                    //     Ok((received_amount, tx_signature)) => {
+                    //         println!("\u{1F389} Buy successful! Received {:.6} {} in tx {}", received_amount, right_asset, tx_signature);
+                    //         log_trade(
+                    //             &format!("logs/pair_{}_{}_trade_history.json", left_asset, right_asset),
+                    //             &mut trade_log,
+                    //             "buy",
+                    //             received_amount,
+                    //             buy_amount,
+                    //         )
+                    //         .unwrap();
 
-                //     if success {
-                //         println!("🎉 Transaction confirmed!");
-                //     } else {
-                //         println!("🚫 Transaction failed or not confirmed: {:?}", log);
-                //     }
-                // } else {
-                //     println!(
-                //         "Insufficient balance: have {}, need {}",
-                //         asset_b_balance, buy_amount
-                //     );
-                // }
+                    //         write_log(
+                    //             &format!("logs/pair_{}_{}_value.txt", left_asset, right_asset),
+                    //             &received_amount.to_string(),
+                    //         )
+                    //         .unwrap();
+                    //     }
+                    //     Err(e) => {
+                    //         println!("\u{274C} Swap failed: {:?}", e);
+                    //     }
+                    // }
+                } else {
+                    println!(
+                        "\u{26A0} Insufficient balance: have {:.6}, need {:.6}",
+                        asset_b_balance, buy_amount
+                    );
+                }
+            }
+            false => {
+                println!("\u{1F4C8} SELL logic not yet implemented");
+                // To implement selling logic next...
             }
 
             false => {

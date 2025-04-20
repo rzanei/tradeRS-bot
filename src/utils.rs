@@ -25,6 +25,7 @@ use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{native_token::lamports_to_sol, pubkey::Pubkey, signature::{Keypair, Signature, Signer}, signer::SeedDerivable, transaction::Transaction
 };
 use spl_associated_token_account::get_associated_token_address;
+// use jupiter_swap_api_client::{quote::QuoteRequest, swap::SwapRequest, transaction_config::TransactionConfig, JupiterSwapApiClient};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct PoolAsset {
@@ -500,3 +501,57 @@ pub async fn sol_get_sol_balance(
     let sol = lamports_to_sol(lamports);
     Ok(sol)
 }
+
+// pub async fn jupiter_swap(
+//     rpc_url: &str,
+//     input_mint: &str,
+//     output_mint: &str,
+//     amount: u64,
+//     slippage_bps: u64,
+//     user_keypair: &Keypair,
+// ) -> Result<(), Box<dyn std::error::Error>> {
+//     // Initialize the Jupiter API client
+//     let jupiter_client = JupiterSwapApiClient::new("https://quote-api.jup.ag/v6");
+
+//     // Parse the mint addresses
+//     let input_mint_pubkey = Pubkey::from_str(input_mint)?;
+//     let output_mint_pubkey = Pubkey::from_str(output_mint)?;
+
+//     // Create a quote request
+//     let quote_request = QuoteRequest {
+//         amount,
+//         input_mint: input_mint_pubkey,
+//         output_mint: output_mint_pubkey,
+//         slippage_bps,
+//         ..QuoteRequest::default()
+//     };
+
+//     // Get a quote
+//     let quote_response = jupiter_client.quote(&quote_request).await?;
+
+//     // Create a swap request
+//     let swap_request = SwapRequest {
+//         user_public_key: user_keypair.pubkey(),
+//         quote_response: quote_response.clone(),
+//         config: TransactionConfig::default(),
+//     };
+
+//     // Get the swap transaction
+//     let swap_response = jupiter_client.swap(&swap_request).await?;
+
+//     // Deserialize the transaction
+//     let tx_bytes = base64::decode(swap_response.swap_transaction)?;
+//     let message = solana_sdk::message::Message::deserialize(&tx_bytes)?;
+//     let mut transaction = solana_sdk::transaction::Transaction::new_unsigned(message);
+
+//     // Sign the transaction
+//     transaction.sign(&[user_keypair], transaction.message.recent_blockhash);
+
+//     // Send the transaction
+//     let client = solana_client::rpc_client::RpcClient::new(rpc_url.to_string());
+//     let signature = client.send_and_confirm_transaction(&transaction)?;
+
+//     println!("✅ Swap transaction sent: {}", signature);
+
+//     Ok(())
+// }
