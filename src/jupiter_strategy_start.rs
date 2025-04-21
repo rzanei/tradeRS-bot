@@ -4,7 +4,7 @@ use crate::{
     log_manager::{load_trade_log, log_trade, read_log, write_log},
     trading_math::{decreased_amount_by_percentage, increased_amount_by_percentage},
     utils::{
-        sol_get_sol_balance,
+        jupiter_swap, sol_get_sol_balance
         // jupiter_swap, // <-- This should be your Jupiter integration (swap executor)
     },
 };
@@ -50,15 +50,16 @@ pub async fn jup_bot_start(
                 if asset_b_balance > buy_amount {
                     println!("\u{1F4B5} Attempting to buy {} worth of {}", buy_amount, right_asset);
 
-                    // let swap_result = jupiter_swap(
-                    //     &sol_keypair,
-                    //     buy_amount,
-                    //     left_asset,
-                    //     right_asset,
-                    //     rpc_url,
-                    // )
-                    // .await;
-
+                    let swap_result = jupiter_swap(
+                        rpc_url,
+                        left_asset,
+                        right_asset,
+                        buy_amount,
+                        50,
+                        &sol_keypair,
+                    )
+                    .await.unwrap();
+                    println!("{:?}", swap_result)
                     // match swap_result {
                     //     Ok((received_amount, tx_signature)) => {
                     //         println!("\u{1F389} Buy successful! Received {:.6} {} in tx {}", received_amount, right_asset, tx_signature);

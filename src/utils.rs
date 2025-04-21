@@ -17,15 +17,15 @@ use cosmrs::{
 };
 use osmosis_std::types::osmosis::{ gamm::v1beta1::MsgSwapExactAmountIn, poolmanager::v1beta1::SwapAmountInRoute};
 use prost::Message;
+use std::error::Error as StdError;
 
 
 // Solana Deps
 use ed25519_dalek_bip32::{DerivationPath, ExtendedSigningKey};
 use solana_client::nonblocking::rpc_client::RpcClient;
-use solana_sdk::{native_token::lamports_to_sol, pubkey::Pubkey, signature::{Keypair, Signature, Signer}, signer::SeedDerivable, transaction::Transaction
+use solana_sdk::{native_token::{lamports_to_sol, sol_to_lamports}, pubkey::Pubkey, signature::{Keypair, Signature, Signer}, signer::SeedDerivable, transaction::{Transaction, VersionedTransaction}
 };
 use spl_associated_token_account::get_associated_token_address;
-// use jupiter_swap_api_client::{quote::QuoteRequest, swap::SwapRequest, transaction_config::TransactionConfig, JupiterSwapApiClient};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct PoolAsset {
@@ -70,6 +70,12 @@ pub struct BaseAccount {
 #[derive(Debug, Deserialize)]
 pub struct AccountWrapper {
     pub account: BaseAccount,
+}
+
+#[derive(Debug, Deserialize)]
+struct JupiterQuote {
+    outAmount: String,
+    swapTransaction: String,
 }
 
 // COSMOS UTILS START
@@ -502,56 +508,58 @@ pub async fn sol_get_sol_balance(
     Ok(sol)
 }
 
-// pub async fn jupiter_swap(
-//     rpc_url: &str,
-//     input_mint: &str,
-//     output_mint: &str,
-//     amount: u64,
-//     slippage_bps: u64,
-//     user_keypair: &Keypair,
-// ) -> Result<(), Box<dyn std::error::Error>> {
-//     // Initialize the Jupiter API client
-//     let jupiter_client = JupiterSwapApiClient::new("https://quote-api.jup.ag/v6");
+pub async fn jupiter_swap(
+    rpc_url: &str,
+    input_mint: &str,
+    output_mint: &str,
+    amount: f64,
+    slippage_bps: u64,
+    user_keypair: &Keypair,
+) -> Result<(), Box<dyn StdError>> {
+    let user_pubkey = user_keypair.pubkey();
+    let client = Client::new();
+    let amount_lamports = sol_to_lamports(amount);
 
-//     // Parse the mint addresses
-//     let input_mint_pubkey = Pubkey::from_str(input_mint)?;
-//     let output_mint_pubkey = Pubkey::from_str(output_mint)?;
+    // === 1. Fetch quote
+    let quote_url = format!(
+        "https://quote-api.jup.ag/v6/quote?inputMint={}&outputMint={}&amount={}&slippageBps={}",
+        input_mint, output_mint, amount_lamports, slippage_bps
+    );
 
-//     // Create a quote request
-//     let quote_request = QuoteRequest {
-//         amount,
-//         input_mint: input_mint_pubkey,
-//         output_mint: output_mint_pubkey,
-//         slippage_bps,
-//         ..QuoteRequest::default()
-//     };
+    let quote_resp = client.get(&quote_url).send().await?.error_for_status()?;
+    let quote_json: serde_json::Value = quote_resp.json().await?;
+    println!("💸 Expected output: {}", quote_json["outAmount"]);
 
-//     // Get a quote
-//     let quote_response = jupiter_client.quote(&quote_request).await?;
+    // === 2. Build swap request using full quote
+    let swap_body = serde_json::json!({
+        "quoteResponse": quote_json,
+        "userPublicKey": user_pubkey.to_string(),
+        "wrapUnwrapSOL": true
+    });
 
-//     // Create a swap request
-//     let swap_request = SwapRequest {
-//         user_public_key: user_keypair.pubkey(),
-//         quote_response: quote_response.clone(),
-//         config: TransactionConfig::default(),
-//     };
+    println!("🔍 Sending swap body: {}", swap_body);
 
-//     // Get the swap transaction
-//     let swap_response = jupiter_client.swap(&swap_request).await?;
+    // === 3. Call Jupiter swap API
+    let swap_resp = client
+        .post("https://quote-api.jup.ag/v6/swap")
+        .json(&swap_body)
+        .send()
+        .await?
+        .error_for_status()?;
 
-//     // Deserialize the transaction
-//     let tx_bytes = base64::decode(swap_response.swap_transaction)?;
-//     let message = solana_sdk::message::Message::deserialize(&tx_bytes)?;
-//     let mut transaction = solana_sdk::transaction::Transaction::new_unsigned(message);
+    let swap_json: serde_json::Value = swap_resp.json().await?;
+    let tx_base64 = swap_json["swapTransaction"]
+        .as_str()
+        .ok_or("Missing swapTransaction field")?;
 
-//     // Sign the transaction
-//     transaction.sign(&[user_keypair], transaction.message.recent_blockhash);
+    // === 4. Decode, sign, send
+    let tx_bytes = base64::decode(tx_base64)?;
+    let mut tx: VersionedTransaction = bincode::deserialize(&tx_bytes)?;
+    let sig = user_keypair.sign_message(&tx.message.serialize());
+    tx.signatures[0] = sig;   
+    let rpc = RpcClient::new(rpc_url.to_string());
+    let sig = rpc.send_and_confirm_transaction(&tx).await.unwrap();
+    println!("✅ Swap submitted! Signature: {}", sig);
 
-//     // Send the transaction
-//     let client = solana_client::rpc_client::RpcClient::new(rpc_url.to_string());
-//     let signature = client.send_and_confirm_transaction(&transaction)?;
-
-//     println!("✅ Swap transaction sent: {}", signature);
-
-//     Ok(())
-// }
+    Ok(())
+}
