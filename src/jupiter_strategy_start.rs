@@ -168,7 +168,7 @@ pub async fn jup_bot_start(
             
                                     write_log(
                                         &format!("logs/pair_{}_{}_value.txt", left_asset, right_asset),
-                                        &"0".to_string(),
+                                        &"0.0".to_string(),
                                     ).unwrap();
             
                                     break;
