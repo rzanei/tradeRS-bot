@@ -67,7 +67,7 @@ async fn main() {
                 println!("Starting Jupiter Bot [{left_asset}/{right_asset}] ...");
 
                 // Trading parameters
-                let amount_token_a: f64 = 0.037044;
+                let amount_token_a: f64 = 30.0;
                 let sell_percentage: f64 = 0.5;
                 let buy_percentage: f64 = 2.5;
                 let recover_percentage: f64 = 65.0;

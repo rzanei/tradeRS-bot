@@ -507,7 +507,6 @@ pub async fn sol_get_sol_balance(
     let sol = lamports_to_sol(lamports);
     Ok(sol)
 }
-
 pub async fn jupiter_swap(
     rpc_url: &str,
     input_mint: &str,
@@ -515,20 +514,41 @@ pub async fn jupiter_swap(
     amount: f64,
     slippage_bps: u64,
     user_keypair: &Keypair,
-) -> Result<(), Box<dyn StdError>> {
+) -> Result<(f64, String), Box<dyn StdError>> {
     let user_pubkey = user_keypair.pubkey();
     let client = Client::new();
-    let amount_lamports = sol_to_lamports(amount);
+
+    // Convert amount based on input token decimals
+    let input_decimals = if input_mint == "So11111111111111111111111111111111111111112" {
+        9 // SOL
+    } else {
+        6 // USDC or others
+    };
+    let amount_in_ui_units = token_amount_to_ui_units(amount, input_decimals);
 
     // === 1. Fetch quote
     let quote_url = format!(
         "https://quote-api.jup.ag/v6/quote?inputMint={}&outputMint={}&amount={}&slippageBps={}",
-        input_mint, output_mint, amount_lamports, slippage_bps
+        input_mint, output_mint, amount_in_ui_units, slippage_bps
     );
 
     let quote_resp = client.get(&quote_url).send().await?.error_for_status()?;
     let quote_json: serde_json::Value = quote_resp.json().await?;
     println!("💸 Expected output: {}", quote_json["outAmount"]);
+
+    // Parse raw output amount (in minor units)
+    let out_amount_raw = quote_json["outAmount"]
+        .as_str()
+        .ok_or("Missing outAmount")?
+        .parse::<f64>()?;
+
+    // Convert based on output token decimals
+    let output_decimals = if output_mint == "So11111111111111111111111111111111111111112" {
+        9 // SOL
+    } else {
+        6 // USDC or others
+    };
+    let out_amount = out_amount_raw / 10f64.powi(output_decimals as i32);
 
     // === 2. Build swap request using full quote
     let swap_body = serde_json::json!({
@@ -552,14 +572,22 @@ pub async fn jupiter_swap(
         .as_str()
         .ok_or("Missing swapTransaction field")?;
 
-    // === 4. Decode, sign, send
+    // === 4. Decode, sign, and send transaction
     let tx_bytes = base64::decode(tx_base64)?;
     let mut tx: VersionedTransaction = bincode::deserialize(&tx_bytes)?;
     let sig = user_keypair.sign_message(&tx.message.serialize());
-    tx.signatures[0] = sig;   
-    let rpc = RpcClient::new(rpc_url.to_string());
-    let sig = rpc.send_and_confirm_transaction(&tx).await.unwrap();
-    println!("✅ Swap submitted! Signature: {}", sig);
+    tx.signatures[0] = sig;
 
-    Ok(())
+    let rpc = RpcClient::new(rpc_url.to_string());
+    let tx_signature = rpc.send_and_confirm_transaction(&tx).await?;
+
+    println!("✅ Swap submitted! Signature: {}", tx_signature);
+
+    // Return out_amount in proper units (SOL or USDC), and tx signature
+    Ok((out_amount, tx_signature.to_string()))
+}
+
+
+fn token_amount_to_ui_units(amount: f64, decimals: u8) -> u64 {
+    (amount * 10_f64.powi(decimals as i32)) as u64
 }

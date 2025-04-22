@@ -5,7 +5,6 @@ use crate::{
     trading_math::{decreased_amount_by_percentage, increased_amount_by_percentage},
     utils::{
         jupiter_swap, sol_get_sol_balance
-        // jupiter_swap, // <-- This should be your Jupiter integration (swap executor)
     },
 };
 use std::{env, str::FromStr};
@@ -21,7 +20,6 @@ pub async fn jup_bot_start(
     dotenvy::from_path(".env").expect("Failed to load .env");
     let wallet_pk = env::var("SOL_WALLET_PK").expect("SOL_WALLET_PK not set in .env");
     let rpc_url = "https://api.mainnet-beta.solana.com";
-    let mint_address = Pubkey::from_str(right_asset).unwrap(); // `right_asset` must be a base58 string
     
     
     // === 1. Parse mnemonic, derive key and address ===
@@ -45,154 +43,161 @@ pub async fn jup_bot_start(
                 )
                 .await
                 .unwrap();
-                println!("Account Balance: {:?}", asset_b_balance);
-
-                if asset_b_balance > buy_amount {
-                    println!("\u{1F4B5} Attempting to buy {} worth of {}", buy_amount, right_asset);
-
-                    let swap_result = jupiter_swap(
+                println!("Account Balance: {:?} SOL", asset_b_balance);
+                let mut retries = 200;
+                let mut slippage_bps = 1;
+                let slippage_bps_max = 5;
+                
+                while retries > 0 {
+                    println!("💵 Attempting to buy {:.6} worth of {} with slippage {}bps", buy_amount, left_asset, slippage_bps);
+                
+                    match jupiter_swap(
                         rpc_url,
-                        left_asset,
-                        right_asset,
+                        right_asset, // USDC - what you have
+                        left_asset,  // SOL - what you want to buy
                         buy_amount,
-                        50,
+                        slippage_bps,
                         &sol_keypair,
-                    )
-                    .await.unwrap();
-                    println!("{:?}", swap_result)
-                    // match swap_result {
-                    //     Ok((received_amount, tx_signature)) => {
-                    //         println!("\u{1F389} Buy successful! Received {:.6} {} in tx {}", received_amount, right_asset, tx_signature);
-                    //         log_trade(
-                    //             &format!("logs/pair_{}_{}_trade_history.json", left_asset, right_asset),
-                    //             &mut trade_log,
-                    //             "buy",
-                    //             received_amount,
-                    //             buy_amount,
-                    //         )
-                    //         .unwrap();
-
-                    //         write_log(
-                    //             &format!("logs/pair_{}_{}_value.txt", left_asset, right_asset),
-                    //             &received_amount.to_string(),
-                    //         )
-                    //         .unwrap();
-                    //     }
-                    //     Err(e) => {
-                    //         println!("\u{274C} Swap failed: {:?}", e);
-                    //     }
-                    // }
-                } else {
-                    println!(
-                        "\u{26A0} Insufficient balance: have {:.6}, need {:.6}",
-                        asset_b_balance, buy_amount
-                    );
+                    ).await {
+                        Ok((received_amount, tx_signature)) => {
+                            println!("🎉 Buy successful! Received {:.6} {} in tx {}", received_amount, right_asset, tx_signature);
+                
+                            log_trade(
+                                &format!("logs/pair_{}_{}_trade_history.json", left_asset, right_asset),
+                                &mut trade_log,
+                                "buy",
+                                buy_amount,       // Correct: USDC spent
+                                received_amount,  // Correct: SOL received
+                            ).unwrap();
+                
+                            write_log(
+                                &format!("logs/pair_{}_{}_value.txt", left_asset, right_asset),
+                                &received_amount.to_string(),
+                            ).unwrap();
+                
+                            break;
+                        }
+                        Err(e) => {
+                            println!("⚠️ Swap attempt failed: {:?}", e);
+                
+                            retries -= 1;
+                            if slippage_bps < slippage_bps_max {
+                                slippage_bps += 1;
+                            }
+                
+                            if retries > 0 {
+                                println!("🔁 Retrying in 2 seconds... ({} retries left)", retries);
+                                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                            } else {
+                                println!("❌ Max retries reached. Aborting swap.");
+                                break;
+                            }
+                        }
+                    }
                 }
             }
             false => {
-                println!("\u{1F4C8} SELL logic not yet implemented");
-                // To implement selling logic next...
+                println!("📈 Checking SELL conditions...");
+            
+                // 1. Get the last buy trade info
+                let last_trade = trade_log.last().unwrap();
+                if last_trade.trade_type != "buy" {
+                    println!("⚠️ Last trade was not a BUY. Skipping...");
+                    return;
+                }
+            
+                let sol_holding = last_trade.amount_token_b; // e.g. 0.03472 SOL
+                let paid_usdc = last_trade.amount_token_a;   // e.g. 5.0 USDC
+            
+                // 2. Get quote for selling that SOL to USDC
+                let amount_lamports = (sol_holding * 1_000_000_000.0) as u64;
+                let quote_url = format!(
+                    "https://quote-api.jup.ag/v6/quote?inputMint={}&outputMint={}&amount={}&slippageBps={}",
+                    left_asset,  // SOL
+                    right_asset, // USDC
+                    amount_lamports,
+                    50 // 0.5% slippage tolerance
+                );
+            
+                let client = reqwest::Client::new();
+                let quote_resp = client.get(&quote_url).send().await;
+                if let Ok(resp) = quote_resp {
+                    let quote_json: serde_json::Value = resp.json().await.unwrap();
+                    let out_amount_str = quote_json["outAmount"]
+                        .as_str()
+                        .ok_or("Missing outAmount in quote")
+                        .unwrap();
+                    let usdc_received = out_amount_str.parse::<f64>().unwrap() / 1_000_000.0;
+            
+                    println!("🔁 Holding: {:.6} SOL → would return {:.6} USDC", sol_holding, usdc_received);
+            
+                    // 3. Check if it's profitable
+                    let target_return = paid_usdc * (1.0 + sell_percentage / 100.0);
+                    println!("🎯 Need at least {:.6} USDC to sell for profit (+{}%)", target_return, sell_percentage);
+            
+                    if usdc_received >= target_return {
+                        println!("✅ SELL opportunity detected!");
+            
+                        // 4. Execute the swap
+                        let mut retries = 200;
+                        let mut slippage_bps = 1;
+                        let slippage_bps_max = 5;
+            
+                        while retries > 0 {
+                            println!("💰 Attempting to sell {:.6} SOL with {}bps slippage...", sol_holding, slippage_bps);
+                            match jupiter_swap(
+                                rpc_url,
+                                left_asset,  // selling SOL
+                                right_asset, // buying USDC
+                                sol_holding,
+                                slippage_bps,
+                                &sol_keypair,
+                            ).await {
+                                Ok((usdc_received_actual, tx_signature)) => {
+                                    let profit = usdc_received_actual - paid_usdc;
+                                    println!("💰 SELL completed! Got {:.6} USDC in tx {}", usdc_received_actual, tx_signature);
+                                    println!("📈 Profit: +{:.6} USDC (+{:.2}%)", profit, (profit / paid_usdc) * 100.0);
+            
+                                    log_trade(
+                                        &format!("logs/pair_{}_{}_trade_history.json", left_asset, right_asset),
+                                        &mut trade_log,
+                                        "sell",
+                                        sol_holding,
+                                        usdc_received_actual,
+                                    ).unwrap();
+            
+                                    write_log(
+                                        &format!("logs/pair_{}_{}_value.txt", left_asset, right_asset),
+                                        &"0".to_string(),
+                                    ).unwrap();
+            
+                                    break;
+                                }
+                                Err(e) => {
+                                    println!("⚠️ Sell attempt failed: {:?}", e);
+                                    retries -= 1;
+                                    if slippage_bps < slippage_bps_max {
+                                        slippage_bps += 1;
+                                    }
+                                    if retries > 0 {
+                                        println!("🔁 Retrying in 2 seconds... ({} retries left)", retries);
+                                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                                    } else {
+                                        println!("❌ Max retries reached. Aborting sell.");
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        println!("⏳ Not profitable to sell yet.");
+                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    }
+                } else {
+                    println!("❌ Failed to fetch quote for selling.");
+                }
             }
-
-            false => {
-            //     println!("📈 Checking SELL conditions...");
-
-            //     // 1. Read what we paid (in OSMO)
-            //     let paid_osmo = read_log(&format!("logs/pool_{pool_id}_value.txt")).unwrap();
-
-            //     // 2. Find how much ATOM we have (from last trade)
-            //     let last_trade = &trade_log[0];
-            //     let atom_holding = last_trade.amount_token_b;
-
-            //     // 3. Calculate target sell price in OSMO
-            //     let target_return = paid_osmo * (1.0 + sell_percentage / 100.0);
-            //     println!("🎯 Target return: {:.6} OSMO", target_return);
-
-            //     // 4. Simulate the trade
-            //     let atom_balance = get_token_balance(&address, &asset_a.token.denom)
-            //         .await
-            //         .unwrap()
-            //         / 1_000_000.0;
-
-            //     if atom_balance >= atom_holding {
-            //         let (account_number, sequence, msg) = pool_swap(
-            //             &address,
-            //             pool_id,
-            //             &asset_a.token.denom,
-            //             &asset_b.token.denom,
-            //             atom_holding,
-            //             0.001, // slippage
-            //         )
-            //         .await
-            //         .unwrap();
-
-            //         let expected_osmo = simulate_swap_via_lcd(
-            //             msg.clone(),
-            //             public_key,
-            //             sequence,
-            //             account_number,
-            //             &signing_key,
-            //         )
-            //         .await
-            //         .unwrap();
-
-            //         println!(
-            //             "🔁 Holding: {:.6} ATOM → would return {:.6} OSMO",
-            //             atom_holding, expected_osmo
-            //         );
-
-            //         // 5. If simulation meets profit target, perform trade
-            //         if expected_osmo >= target_return {
-            //             println!("✅ SELL opportunity detected!");
-
-            //             let tx_hash = sign_tx_broadcast(
-            //                 msg,
-            //                 public_key,
-            //                 sequence,
-            //                 account_number,
-            //                 &signing_key,
-            //             )
-            //             .await
-            //             .unwrap();
-
-            //             let (success, log, maybe_trade_amounts) =
-            //                 wait_for_tx_confirmation(&tx_hash, 10, 3).await.unwrap();
-
-            //             if success {
-            //                 let (osmo_received, _) = maybe_trade_amounts.unwrap_or((0.0, 0.0));
-
-            //                 println!(
-            //                     "💰 SOLD {:.6} ATOM for {:.6} OSMO",
-            //                     atom_holding, osmo_received
-            //                 );
-
-            //                 log_trade(
-            //                     &format!("logs/pool_{pool_id}_trade_history.json"),
-            //                     &mut trade_log,
-            //                     "sell",
-            //                     atom_holding,
-            //                     osmo_received,
-            //                 )
-            //                 .unwrap();
-
-            //                 write_log(&format!("logs/pool_{pool_id}_value.txt"), &"0".to_string())
-            //                     .unwrap();
-            //             } else {
-            //                 println!("🚫 SELL failed: {:?}", log);
-            //             }
-            //         } else {
-            //             println!("⏳ Waiting — not profitable to sell yet.");
-            //         }
-            //     } else {
-            //         println!(
-            //             "❌ Not enough ATOM in wallet: have {}, need {}",
-            //             atom_balance, atom_holding
-            //         );
-            //     }
-            }
+            
         }
-
-        // Optionally sleep before the next check
-        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
     }
 }
