@@ -1,4 +1,5 @@
 use solana_sdk::{pubkey::Pubkey, signature::Keypair, signer::Signer};
+use chrono::{DateTime, Utc};
 
 use crate::{
     log_manager::{load_trade_log, log_trade, read_log, write_log},
@@ -32,9 +33,31 @@ pub async fn jup_bot_start(
 
     loop {
         let value = read_log(&format!("logs/pair_{left_asset}_{right_asset}_value.txt")).unwrap();
-
+        let cooldown_secs = 3600; // 1 hour
+        let now = Utc::now();
         match value.eq(&0.0) {
             true => {
+            
+                println!("🕒 Checking cooldown...");
+
+                if let Some(last_trade) = trade_log.first() {
+                    if last_trade.trade_type == "sell" {
+                        let last_time = DateTime::parse_from_rfc3339(&last_trade.time)
+                            .unwrap()
+                            .with_timezone(&Utc);
+                        let elapsed = now.signed_duration_since(last_time).num_seconds();
+        
+                        if elapsed < cooldown_secs {
+                            println!(
+                                "⏳ Cooldown active ({}s left). Skipping buy...",
+                                cooldown_secs - elapsed
+                            );
+                            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                            continue;
+                        }
+                    }
+                }
+
                 println!("Make First Trade");
 
                 let asset_b_balance = sol_get_sol_balance(
