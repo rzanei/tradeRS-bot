@@ -1,8 +1,5 @@
 use std::{thread, time::Duration};
 
-
-
-
 pub fn increased_amount_by_percentage(value: f64, x: f64) -> f64 {
     let increase = value * (x / 100.0);
     let increased_value = value + increase;

@@ -67,24 +67,24 @@ async fn main() {
                 println!("Starting Jupiter Bot [{left_asset}/{right_asset}] ...");
 
                 // Trading parameters
-                let amount_token_a: f64 = 30.0;
-                let sell_percentage: f64 = 0.5;
-                let buy_percentage: f64 = 2.5;
-                let recover_percentage: f64 = 65.0;
+                let amount_token_a: f64 = 100.0; // This is the initial buy of the trade bot 
+                let sell_percentage: f64 = 0.30; // Sell percentage (The Profit Percentage)
+                let dca_recover_percentage: f64 = 2.0; // Percentage to trigger the DCA Buy if market goes down (Risk Management Strategy)
+                let dca_recover_percentage_to_buy: f64 = 10.0; // Percentage of the total capital to buy as recovery (i.e dca_recover_percentage of amount_token_a )
 
                 println!("Running strategy with parameters:");
                 println!("- Assets: [{left_asset}/{right_asset}]");
                 println!("- amount_token_a: {}", amount_token_a);
                 println!("- sell_percentage: {}%", sell_percentage);
-                println!("- buy_percentage: {}%", buy_percentage);
-                println!("- recover_percentage: {}%", recover_percentage);
+                println!("- dca_recover_percentage: {}%", dca_recover_percentage);
+                println!("- dca_recover_percentage_to_buy: {}%", dca_recover_percentage_to_buy);
                 jup_bot_start(
                     left_asset,
                     right_asset,
                     amount_token_a,
                     sell_percentage,
-                    buy_percentage,
-                    recover_percentage,
+                    dca_recover_percentage,
+                    dca_recover_percentage_to_buy,
                 )
                 .await;
             }
