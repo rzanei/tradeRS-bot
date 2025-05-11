@@ -10,7 +10,7 @@ use osmosis_strategy_start::osmo_bot_start;
 mod jupiter_strategy_start;
 mod log_manager;
 mod osmosis_strategy_start;
-mod trading_math;
+mod market_risk_analyzer;
 mod utils;
 
 #[tokio::main]
@@ -68,7 +68,7 @@ async fn main() {
 
                 // Trading parameters
                 let amount_token_a: f64 = 100.0; // This is the initial buy of the trade bot 
-                let sell_percentage: f64 = 0.30; // Sell percentage (The Profit Percentage)
+                let sell_percentage: f64 = 0.7; // Sell percentage (The Profit Percentage)
                 let dca_recover_percentage: f64 = 2.0; // Percentage to trigger the DCA Buy if market goes down (Risk Management Strategy)
                 let dca_recover_percentage_to_buy: f64 = 10.0; // Percentage of the total capital to buy as recovery (i.e dca_recover_percentage of amount_token_a )
 

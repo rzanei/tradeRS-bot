@@ -1,6 +1,5 @@
 use crate::{
     log_manager::{load_trade_log, log_trade, read_log, write_log},
-    trading_math::{decreased_amount_by_percentage, increased_amount_by_percentage},
     utils::{
         check_tx_success, get_pool_assets, get_token_balance, get_token_price_by_pool,
         get_wallet_balance, pool_swap, sign_tx_broadcast, simulate_swap_math,

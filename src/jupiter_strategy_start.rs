@@ -3,7 +3,9 @@ use solana_sdk::{signature::Keypair, signer::Signer};
 
 use crate::{
     log_manager::{load_trade_log, log_trade, read_log, write_log},
-    trading_math::{decreased_amount_by_percentage, increased_amount_by_percentage},
+    market_risk_analyzer::{
+        PriceTouchAnalyzer, fetch_and_log_binance_history, fetch_current_binance_price_from_log,
+    },
     utils::{jupiter_swap, sol_get_sol_balance},
 };
 use std::env;
@@ -26,13 +28,16 @@ pub async fn jup_bot_start(
     println!("✅ Connected Wallet Address: {:?}", wallet_pubkey);
 
     let mut trade_log = load_trade_log(&format!(
-        "logs/pair_{left_asset}_{right_asset}_trade_history.json"
+        "logs/solana/pair_{left_asset}_{right_asset}_trade_history.json"
     ))
     .unwrap();
     println!("{:?}", trade_log);
 
     loop {
-        let value = read_log(&format!("logs/pair_{left_asset}_{right_asset}_value.txt")).unwrap();
+        let value = read_log(&format!(
+            "logs/solana/pair_{left_asset}_{right_asset}_value.txt"
+        ))
+        .unwrap();
         let cooldown_secs = 3600; // 1 hour
         let now = Utc::now();
 
@@ -40,12 +45,11 @@ pub async fn jup_bot_start(
         let mut trade_retries = 200;
         let mut trade_slippage_bps = 1;
         let trade_slippage_bps_max = 5;
-        
+        let mut smart_adjusted_amount = 0.0;
 
         match value.eq(&0.0) {
             true => {
-                println!("🕒 Checking cooldown...");
-
+                // === 1. Cooldown Check ===
                 if let Some(last_trade) = trade_log.first() {
                     if last_trade.trade_type == "sell" {
                         let last_time = DateTime::parse_from_rfc3339(&last_trade.time)
@@ -64,7 +68,74 @@ pub async fn jup_bot_start(
                     }
                 }
 
-                println!("Make First Trade");
+                // === 2. Market Risk Check ===
+                println!("🕒 Checking for Market Condition...");
+                let binance_price_log =
+                    format!("logs/solana/binance_{left_asset}_{right_asset}__prices.csv");
+
+                if let Err(e) = fetch_and_log_binance_history(&binance_price_log, "SOLUSDT", "15").await {
+                    println!("⚠️ Failed to fetch Binance history: {}", e);
+                    continue;
+                }
+
+                if let Ok(analyzer) = PriceTouchAnalyzer::from_file(&binance_price_log, 0.25) {
+                    let current_price =
+                        fetch_current_binance_price_from_log(&binance_price_log).unwrap();
+                    let (risk_label, touches, multiplier) = analyzer.assess_price(current_price, sell_percentage);
+
+                    let log_line = format!(
+                        "[Risk Check] Price: {:.2} | Touches: {} | Risk: {} | Multiplier: {:.2}",
+                        current_price, touches, risk_label, multiplier
+                    );
+
+                    // if let Ok(mut file) = std::fs::OpenOptions::new()
+                    //     .append(true)
+                    //     .create(true)
+                    //     .open("logs/solana/risk_dashboard.log")
+                    // {
+                    //     let _ = writeln!(file, "{}", log_line);
+                    // }
+                    // Dashboard for Grafana
+
+                    println!("{}", log_line);
+
+                    let adjusted_amount = amount_token_a * multiplier;
+
+                    match risk_label.as_str() {
+                        "🔴 HIGH-RISK" => {
+                            println!("❌ Skipping trade due to HIGH RISK.");
+                            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                            continue;
+                        }
+                        "⚠️ WEAK ZONE" => {
+                            println!(
+                                "⚠️ Weak zone detected. Reducing trade size to {:.2}.",
+                                adjusted_amount
+                            );
+                        }
+                        _ => {
+                            println!(
+                                "✅ Risk acceptable. Using adjusted size: {:.2}",
+                                adjusted_amount
+                            );
+                        }
+                    }
+
+                    // Optional: ensure minimum viable trade
+                    if adjusted_amount < 30.0 {
+                        println!(
+                            "⚠️ Adjusted amount {:.2} too small to execute. Skipping.",
+                            adjusted_amount
+                        );
+                        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                        continue;
+                    } else {
+                        smart_adjusted_amount = adjusted_amount
+                    }
+                }
+
+                // === 3. Proceed with First Trade ===
+                println!("🚀 Market & Risk Passed. Preparing to Buy...");
 
                 let asset_b_balance = sol_get_sol_balance(rpc_url, &wallet_pubkey).await.unwrap();
                 println!("Account Balance: {:?} SOL", asset_b_balance);
@@ -72,14 +143,14 @@ pub async fn jup_bot_start(
                 while trade_retries > 0 {
                     println!(
                         "💵 Attempting to buy {:.6} worth of {} with slippage {}bps",
-                        amount_token_a, left_asset, trade_slippage_bps
+                        smart_adjusted_amount, left_asset, trade_slippage_bps
                     );
 
                     match jupiter_swap(
                         rpc_url,
                         right_asset, // USDC - what you have
                         left_asset,  // SOL - what you want to buy
-                        amount_token_a,
+                        smart_adjusted_amount,
                         trade_slippage_bps,
                         &sol_keypair,
                     )
@@ -93,18 +164,21 @@ pub async fn jup_bot_start(
 
                             log_trade(
                                 &format!(
-                                    "logs/pair_{}_{}_trade_history.json",
+                                    "logs/solana/pair_{}_{}_trade_history.json",
                                     left_asset, right_asset
                                 ),
                                 &mut trade_log,
                                 "buy",
-                                amount_token_a,  // Correct: USDC spent
+                                smart_adjusted_amount,  // Correct: USDC spent
                                 received_amount, // Correct: SOL received
                             )
                             .unwrap();
 
                             write_log(
-                                &format!("logs/pair_{}_{}_value.txt", left_asset, right_asset),
+                                &format!(
+                                    "logs/solana/pair_{}_{}_value.txt",
+                                    left_asset, right_asset
+                                ),
                                 &received_amount.to_string(),
                             )
                             .unwrap();
@@ -120,7 +194,10 @@ pub async fn jup_bot_start(
                             }
 
                             if trade_retries > 0 {
-                                println!("🔁 Retrying in 2 seconds... ({} trade_retries left)", trade_retries);
+                                println!(
+                                    "🔁 Retrying in 2 seconds... ({} trade_retries left)",
+                                    trade_retries
+                                );
                                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                             } else {
                                 println!("❌ Max trade_retries reached. Aborting swap.");
@@ -207,7 +284,7 @@ pub async fn jup_bot_start(
 
                                     log_trade(
                                         &format!(
-                                            "logs/pair_{}_{}_trade_history.json",
+                                            "logs/solana/pair_{}_{}_trade_history.json",
                                             left_asset, right_asset
                                         ),
                                         &mut trade_log,
@@ -219,7 +296,7 @@ pub async fn jup_bot_start(
 
                                     write_log(
                                         &format!(
-                                            "logs/pair_{}_{}_value.txt",
+                                            "logs/solana/pair_{}_{}_value.txt",
                                             left_asset, right_asset
                                         ),
                                         &"0.0".to_string(),
@@ -255,7 +332,7 @@ pub async fn jup_bot_start(
                             println!("🛒 DCA Triggered! Buying the dip...");
 
                             let dca_amount =
-                                amount_token_a * (dca_recover_percentage_to_buy / 100.0);
+                                smart_adjusted_amount * (dca_recover_percentage_to_buy / 100.0);
                             println!("🔁 DCA Buy: Investing {:.2} USDC", dca_amount);
 
                             while trade_retries > 0 {
@@ -282,7 +359,7 @@ pub async fn jup_bot_start(
                                         // Log the DCA buy
                                         log_trade(
                                             &format!(
-                                                "logs/pair_{}_{}_trade_history.json",
+                                                "logs/solana/pair_{}_{}_trade_history.json",
                                                 left_asset, right_asset
                                             ),
                                             &mut trade_log,
@@ -298,7 +375,7 @@ pub async fn jup_bot_start(
 
                                         write_log(
                                             &format!(
-                                                "logs/pair_{}_{}_value.txt",
+                                                "logs/solana/pair_{}_{}_value.txt",
                                                 left_asset, right_asset
                                             ),
                                             &new_val.to_string(),
@@ -321,7 +398,9 @@ pub async fn jup_bot_start(
                                             tokio::time::sleep(std::time::Duration::from_secs(2))
                                                 .await;
                                         } else {
-                                            println!("❌ Max trade_retries reached for DCA. Aborting.");
+                                            println!(
+                                                "❌ Max trade_retries reached for DCA. Aborting."
+                                            );
                                             break;
                                         }
                                     }
