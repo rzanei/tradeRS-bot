@@ -1,6 +1,5 @@
 use serde_json::Value;
 use std::collections::HashMap;
-use std::fmt::format;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 
@@ -55,7 +54,7 @@ pub async fn fetch_and_log_binance_history(
 }
 
 /// Appends the current price to a log file
-fn append_price_to_log(path: &str, price: f64) -> Result<(), String> {
+fn _append_price_to_log(path: &str, price: f64) -> Result<(), String> {
     let mut file = OpenOptions::new()
         .append(true)
         .create(true)
@@ -66,7 +65,7 @@ fn append_price_to_log(path: &str, price: f64) -> Result<(), String> {
 }
 
 /// Keeps only the last `n` lines in the file
-fn trim_price_log(path: &str, max_lines: usize) -> Result<(), String> {
+fn _trim_price_log(path: &str, max_lines: usize) -> Result<(), String> {
     let content = fs::read_to_string(path).map_err(|e| format!("Failed to read log: {}", e))?;
 
     let lines: Vec<_> = content.lines().rev().take(max_lines).collect();

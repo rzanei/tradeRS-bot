@@ -1,19 +1,18 @@
 use chrono::{DateTime, Utc};
-use solana_sdk::{signature::Keypair, signer::Signer};
+use solana_sdk::{pubkey::Pubkey, signature::Keypair, signer::Signer};
 
 use crate::{
     log_manager::{load_trade_log, log_trade, read_log, write_log},
     market_risk_analyzer::{
-        PriceTouchAnalyzer, fetch_and_log_binance_history, fetch_current_binance_price_from_log,
+        fetch_and_log_binance_history, fetch_current_binance_price_from_log, PriceTouchAnalyzer
     },
-    utils::{jupiter_swap, sol_get_sol_balance},
+    utils::{get_usdc_balance, jupiter_swap, sol_get_sol_balance},
 };
-use std::env;
+use std::{env, str::FromStr};
 
 pub async fn jup_bot_start(
     left_asset: &str,
     right_asset: &str,
-    amount_token_a: f64,
     sell_percentage: f64,
     dca_recover_percentage: f64,
     dca_recover_percentage_to_buy: f64,
@@ -99,7 +98,8 @@ pub async fn jup_bot_start(
 
                     println!("{}", log_line);
 
-                    let adjusted_amount = amount_token_a * multiplier;
+                    // let adjusted_amount = 100 * multiplier; // Fixed amount here in test case 
+                    let adjusted_amount = get_usdc_balance( &wallet_pubkey.to_string(), "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v").await * multiplier;
 
                     match risk_label.as_str() {
                         "🔴 HIGH-RISK" => {

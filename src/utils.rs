@@ -1,13 +1,11 @@
 // Common Deps
-use std::str::FromStr;
-use bip39::{Language, Mnemonic};
-use std::env;
-use reqwest::{Error,Client};
-use serde::{Deserialize, Serialize};
+use base64::{Engine as _, engine::general_purpose};
+use reqwest::{Client, Error};
+use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::str::FromStr;
 use tokio::time::{Duration, sleep};
-use base64::{Engine as _, engine::general_purpose};
 
 // Cosmos Deps
 use cosmrs::{
@@ -15,16 +13,22 @@ use cosmrs::{
     crypto::secp256k1::SigningKey,
     tx::{self, Fee, SignDoc, SignerInfo},
 };
-use osmosis_std::types::osmosis::{ gamm::v1beta1::MsgSwapExactAmountIn, poolmanager::v1beta1::SwapAmountInRoute};
+use osmosis_std::types::osmosis::{
+    gamm::v1beta1::MsgSwapExactAmountIn, poolmanager::v1beta1::SwapAmountInRoute,
+};
 use prost::Message;
 use std::error::Error as StdError;
 
-
 // Solana Deps
-use ed25519_dalek_bip32::{DerivationPath, ExtendedSigningKey};
 use solana_client::nonblocking::rpc_client::RpcClient;
-use solana_sdk::{native_token::{lamports_to_sol, sol_to_lamports}, pubkey::Pubkey, signature::{Keypair, Signature, Signer}, signer::SeedDerivable, transaction::{Transaction, VersionedTransaction}
+use solana_client::rpc_request::TokenAccountsFilter;
+use solana_sdk::{
+    native_token::lamports_to_sol,
+    pubkey::Pubkey,
+    signature::{Keypair, Signer},
+    transaction::VersionedTransaction,
 };
+
 use spl_associated_token_account::get_associated_token_address;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -61,8 +65,6 @@ struct BalancesResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct BaseAccount {
-    pub address: String,
-    pub pub_key: Option<serde_json::Value>,
     pub account_number: String,
     pub sequence: String,
 }
@@ -70,12 +72,6 @@ pub struct BaseAccount {
 #[derive(Debug, Deserialize)]
 pub struct AccountWrapper {
     pub account: BaseAccount,
-}
-
-#[derive(Debug, Deserialize)]
-struct JupiterQuote {
-    outAmount: String,
-    swapTransaction: String,
 }
 
 // COSMOS UTILS START
@@ -405,8 +401,6 @@ pub async fn wait_for_tx_confirmation(
     ))
 }
 
-
-
 pub fn simulate_swap_math(amount_in: f64, reserve_in: f64, reserve_out: f64) -> f64 {
     let dx = amount_in * 1_000_000.0; // convert to u<token>
     let numerator = reserve_out * dx * 997.0;
@@ -479,21 +473,7 @@ pub async fn simulate_swap_via_lcd(
     Err("No swap result in simulation response".into())
 }
 
-// SOLANA UTILS START 
-pub async fn sol_get_token_balance(
-    rpc_url: &str,
-    wallet_pubkey: &Pubkey,
-    token_mint: &Pubkey,
-) -> Result<f64, Box<dyn std::error::Error>> {
-    let client = RpcClient::new(rpc_url.to_string());
-    let ata = get_associated_token_address(wallet_pubkey, token_mint);
-
-    let balance = client
-        .get_token_account_balance(&ata)
-        .await.map(|b| b.ui_amount.unwrap_or(0.0))?;
-
-    Ok(balance)
-}
+// SOLANA UTILS START
 
 pub async fn sol_get_sol_balance(
     rpc_url: &str,
@@ -507,6 +487,41 @@ pub async fn sol_get_sol_balance(
     let sol = lamports_to_sol(lamports);
     Ok(sol)
 }
+
+pub async fn get_usdc_balance(wallet_address: &str, usdc_mint: &str) -> f64 {
+    // USDC Mint on Solana mainnet
+    let rpc_url = "https://api.mainnet-beta.solana.com";
+
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "getTokenAccountsByOwner",
+        "params": [
+            wallet_address,
+            { "mint": usdc_mint },
+            { "encoding": "jsonParsed" }
+        ]
+    });
+
+    let client = Client::new();
+    let res = client.post(rpc_url).json(&body).send().await.unwrap();
+
+    let json: serde_json::Value = res.json().await.unwrap();
+
+    let accounts = json["result"]["value"].as_array().ok_or("No accounts found").unwrap();
+
+    let mut total_usdc = 0.0;
+    for account in accounts {
+        if let Some(amount_str) = account["account"]["data"]["parsed"]["info"]["tokenAmount"]["uiAmount"]
+            .as_f64()
+        {
+            total_usdc += amount_str;
+        }
+    }
+
+    total_usdc
+}
+
 pub async fn jupiter_swap(
     rpc_url: &str,
     input_mint: &str,
@@ -586,7 +601,6 @@ pub async fn jupiter_swap(
     // Return out_amount in proper units (SOL or USDC), and tx signature
     Ok((out_amount, tx_signature.to_string()))
 }
-
 
 fn token_amount_to_ui_units(amount: f64, decimals: u8) -> u64 {
     (amount * 10_f64.powi(decimals as i32)) as u64

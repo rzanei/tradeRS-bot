@@ -1,19 +1,18 @@
 use crate::{
     log_manager::{load_trade_log, log_trade, read_log, write_log},
     utils::{
-        check_tx_success, get_pool_assets, get_token_balance, get_token_price_by_pool,
-        get_wallet_balance, pool_swap, sign_tx_broadcast, simulate_swap_math,
-        simulate_swap_via_lcd, wait_for_tx_confirmation,
+        get_pool_assets, get_token_balance, pool_swap, sign_tx_broadcast, simulate_swap_via_lcd,
+        wait_for_tx_confirmation,
     },
 };
-use std::{env, str::FromStr};
+use std::env;
 
 pub async fn osmo_bot_start(
     pool_id: &str,
     buy_amount: f64,
     sell_percentage: f64,
-    buy_percentage: f64,
-    recover_percentage: f64,
+    _buy_percentage: f64,
+    _recover_percentage: f64,
 ) {
     dotenvy::from_path(".env").expect("Failed to load .env");
     let wallet_mnemo = env::var("WALLET_MNEMO").expect("WALLET_MNEMO not set in .env");
@@ -29,7 +28,7 @@ pub async fn osmo_bot_start(
     let seed = mnemonic.to_seed("");
     let derivation_path = DerivationPath::from_str("m/44'/118'/0'/0/0").unwrap();
     let child_xprv = XPrv::derive_from_path(seed, &derivation_path).unwrap();
-    let xprv = XPrv::new(&seed).unwrap();
+    let _xprv = XPrv::new(&seed).unwrap();
     let signing_key = SigningKey::from_slice(&child_xprv.to_bytes()).unwrap();
     let public_key = signing_key.public_key();
     let account_id = public_key.account_id("osmo").unwrap();
