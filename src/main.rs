@@ -69,8 +69,8 @@ async fn main() {
                 // Trading parameters
                 let amount_token_a: f64 = 100.0; // This is the initial buy of the trade bot 
                 let sell_percentage: f64 = 0.3; // Sell percentage (The Profit Percentage)
-                let dca_recover_percentage: f64 = 1.5; // Percentage to trigger the DCA Buy if market goes down (Risk Management Strategy)
-                let dca_recover_percentage_to_buy: f64 = 10.0; // Percentage of the total capital to buy as recovery (i.e dca_recover_percentage of amount_token_a )
+                let dca_recover_percentage: f64 = 3.0; // Percentage to trigger the DCA Buy if market goes down (Risk Management Strategy)
+                let dca_recover_percentage_to_buy: f64 = 50.0; // Percentage of the total capital to buy as recovery (i.e dca_recover_percentage of amount_token_a )
 
                 println!("Running strategy with parameters:");
                 println!("- Assets: [{left_asset}/{right_asset}]");

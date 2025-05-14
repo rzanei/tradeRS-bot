@@ -4,7 +4,7 @@ use solana_sdk::{pubkey::Pubkey, signature::Keypair, signer::Signer};
 use crate::{
     log_manager::{load_trade_log, log_trade, read_log, write_log},
     market_risk_analyzer::{
-        fetch_and_log_binance_history, fetch_current_binance_price_from_log, PriceTouchAnalyzer
+        PriceTouchAnalyzer, fetch_and_log_binance_history, fetch_current_binance_price_from_log,
     },
     utils::{get_usdc_balance, jupiter_swap, sol_get_sol_balance},
 };
@@ -45,6 +45,7 @@ pub async fn jup_bot_start(
         let mut trade_slippage_bps = 1;
         let trade_slippage_bps_max = 5;
         let mut smart_adjusted_amount = 0.0;
+        let mut tmp_multip = 0.0;
 
         match value.eq(&0.0) {
             true => {
@@ -72,7 +73,9 @@ pub async fn jup_bot_start(
                 let binance_price_log =
                     format!("logs/solana/binance_{left_asset}_{right_asset}__prices.csv");
 
-                if let Err(e) = fetch_and_log_binance_history(&binance_price_log, "SOLUSDT", "15").await {
+                if let Err(e) =
+                    fetch_and_log_binance_history(&binance_price_log, "SOLUSDT", "15").await
+                {
                     println!("⚠️ Failed to fetch Binance history: {}", e);
                     continue;
                 }
@@ -80,8 +83,9 @@ pub async fn jup_bot_start(
                 if let Ok(analyzer) = PriceTouchAnalyzer::from_file(&binance_price_log, 0.25) {
                     let current_price =
                         fetch_current_binance_price_from_log(&binance_price_log).unwrap();
-                    let (risk_label, touches, multiplier) = analyzer.assess_price(current_price, sell_percentage);
-
+                    let (risk_label, touches, multiplier) =
+                        analyzer.assess_price(current_price, sell_percentage);
+                    tmp_multip = multiplier.clone();
                     let log_line = format!(
                         "[Risk Check] Price: {:.2} | Touches: {} | Risk: {} | Multiplier: {:.2}",
                         current_price, touches, risk_label, multiplier
@@ -98,8 +102,13 @@ pub async fn jup_bot_start(
 
                     println!("{}", log_line);
 
-                    // let adjusted_amount = 100 * multiplier; // Fixed amount here in test case 
-                    let adjusted_amount = get_usdc_balance( &wallet_pubkey.to_string(), "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v").await * multiplier;
+                    // let adjusted_amount = 100 * multiplier; // Fixed amount here in test case
+                    let adjusted_amount = get_usdc_balance(
+                        &wallet_pubkey.to_string(),
+                        "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+                    )
+                    .await
+                        * multiplier;
 
                     match risk_label.as_str() {
                         "🔴 HIGH-RISK" => {
@@ -122,7 +131,7 @@ pub async fn jup_bot_start(
                     }
 
                     // Optional: ensure minimum viable trade
-                    if adjusted_amount < 30.0 {
+                    if adjusted_amount < 10.0 {
                         println!(
                             "⚠️ Adjusted amount {:.2} too small to execute. Skipping.",
                             adjusted_amount
@@ -169,8 +178,8 @@ pub async fn jup_bot_start(
                                 ),
                                 &mut trade_log,
                                 "buy",
-                                smart_adjusted_amount,  // Correct: USDC spent
-                                received_amount, // Correct: SOL received
+                                smart_adjusted_amount, // Correct: USDC spent
+                                received_amount,       // Correct: SOL received
                             )
                             .unwrap();
 
@@ -328,11 +337,16 @@ pub async fn jup_bot_start(
                         let price_change = 100.0 * (usdc_received / paid_usdc - 1.0);
                         println!("📉 Price is at {:+.2}%", price_change);
 
-                        if price_change >= dca_recover_percentage {
+                        if price_change <= -dca_recover_percentage {
                             println!("🛒 DCA Triggered! Buying the dip...");
-
-                            let dca_amount =
-                                smart_adjusted_amount * (dca_recover_percentage_to_buy / 100.0);
+                            let tmp_multip = if tmp_multip == 0.0 { 1.0 } else { tmp_multip };
+                            let dca_amount = (get_usdc_balance(
+                                &wallet_pubkey.to_string(),
+                                "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+                            )
+                            .await
+                                * tmp_multip)
+                                * (dca_recover_percentage_to_buy / 100.0);
                             println!("🔁 DCA Buy: Investing {:.2} USDC", dca_amount);
 
                             while trade_retries > 0 {
