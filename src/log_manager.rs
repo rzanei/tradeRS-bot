@@ -1,7 +1,10 @@
 use chrono::Utc;
-use serde::{Serialize, Deserialize};
-use std::{fs::{File, OpenOptions}, io::{self, Write, Read}};
+use serde::{Deserialize, Serialize};
 use std::path::Path;
+use std::{
+    fs::{File, OpenOptions},
+    io::{self, Read, Write},
+};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Trade {
@@ -9,6 +12,7 @@ pub struct Trade {
     pub amount_token_a: f64,
     pub amount_token_b: f64,
     pub time: String,
+    pub dca_level: Option<u32>,
 }
 
 pub fn write_log(file_path: &str, log: &str) -> io::Result<()> {
@@ -38,12 +42,20 @@ pub fn append_log(file_path: &str, log: &str) -> io::Result<()> {
     Ok(())
 }
 
-pub fn log_trade(file_path: &str, trade_log: &mut Vec<Trade>, trade_type: &str, amount_token_a: f64, amount_token_b: f64) -> io::Result<()> {
+pub fn log_trade(
+    file_path: &str,
+    trade_log: &mut Vec<Trade>,
+    trade_type: &str,
+    amount_token_a: f64,
+    amount_token_b: f64,
+    dca_level: Option<u32>,
+) -> io::Result<()> {
     let trade = Trade {
         trade_type: trade_type.to_string(),
         amount_token_a,
         amount_token_b,
-        time: Utc::now().to_rfc3339(), // Format time in RFC3339 format
+        time: Utc::now().to_rfc3339(),
+        dca_level,
     };
     trade_log.push(trade.clone()); // Append the trade to the log (list)
     let trade_json = serde_json::to_string(&trade)?; // Serialize the trade to JSON
@@ -62,17 +74,10 @@ pub fn load_trade_log(file_path: &str) -> io::Result<Vec<Trade>> {
             .filter_map(|line| serde_json::from_str(line).ok()) // Deserialize each line into a Trade object
             .collect();
 
-        // Find the last "buy" trade in reverse order
-        for trade in trades.iter().rev() {
-            if trade.trade_type == "buy" {
-                return Ok(vec![trade.clone()]); // Return as a list with a single "buy" trade
-            }
-        }
-        println!("load_trade_log: No 'buy' trades found in the log file.");
-        Ok(Vec::new()) // Return an empty list if no "buy" trade was found
+        Ok(trades) // ✅ Return the full trade history
     } else {
         println!("load_trade_log: File {} does not exist.", file_path);
         File::create(file_path).unwrap();
-        Ok(Vec::new()) // Return an empty list if the file doesn't exist
+        Ok(Vec::new())
     }
 }

@@ -19,7 +19,7 @@ pub async fn fetch_and_log_binance_history(
     timeframe: &str,
 ) -> Result<(), String> {
     let url = format!(
-        "https://api.binance.com/api/v3/klines?symbol={}&interval={}m&limit={}", // change here m/h
+        "https://api.binance.com/api/v3/klines?symbol={}&interval={}h&limit={}", // change here m/h
         symbol, timeframe, MAX_HISTORY_LINES
     );
 
@@ -137,10 +137,10 @@ impl PriceTouchAnalyzer {
 
         // The more the target price has been hit before, the safer the entry now
         let (risk_label, position_multiplier) = match touch_count {
-            0..=2 => ("🔴 HIGH-RISK", 0.25), // Very rare — target might not be realistic
-            3..=6 => ("🟡 MODERATE", 0.5),  // Possible, but still risky
-            7..=15 => ("🟢 SAFE", 0.75),   // Often touched — reliable zone
-            _ => ("✅ VERY SAFE", 1.0),      // Heavily tested — highly probable to hit
+            0..=2 => ("🔴 HIGH-RISK", 0.07), // Very rare — target might not be realistic
+            3..=6 => ("🟡 MODERATE", 0.20),  // Possible, but still risky
+            7..=15 => ("🟢 SAFE", 0.35),   // Often touched — reliable zone
+            _ => ("✅ VERY SAFE", 0.46),      // Heavily tested — highly probable to hit
         };
 
         (risk_label.to_string(), touch_count, position_multiplier)
