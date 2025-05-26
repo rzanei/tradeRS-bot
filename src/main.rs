@@ -67,8 +67,8 @@ async fn main() {
                 println!("Starting Jupiter Bot [{left_asset}/{right_asset}] ...");
 
                 // Trading parameters
-                let sell_percentage: f64 = 0.5; // Sell percentage (The Profit Percentage)
-                let dca_recover_percentage: f64 = 3.0; // Percentage to trigger the DCA Buy if market goes down (Risk Management Strategy)
+                let sell_percentage: f64 = 1.0; // Sell percentage (The Profit Percentage)
+                let dca_recover_percentage: f64 = 5.0; // Percentage to trigger the DCA Buy if market goes down (Risk Management Strategy)
                 let r_factor: f64 = 0.5; // Percentage of the total capital to buy as recovery (i.e dca_recover_percentage of total capital + compound )
 
                 println!("Running strategy with parameters:");

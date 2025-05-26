@@ -208,8 +208,8 @@ pub async fn pool_swap(
         (amount_b, amount_a)
     };
 
-    let estimated_out = simulate_swap_math(amount_in, reserve_in, reserve_out);
-    let min_out = (estimated_out * 0.995) * (1.0 - slippage_tolerance);
+    let estimated_out = simulate_swap_math(amount_in, reserve_in, reserve_out, 0.003);
+    let min_out = estimated_out * (1.0 - slippage_tolerance);
 
     // === Print the math ===
     println!("\n📊 Swap Preview:");
@@ -401,11 +401,12 @@ pub async fn wait_for_tx_confirmation(
     ))
 }
 
-pub fn simulate_swap_math(amount_in: f64, reserve_in: f64, reserve_out: f64) -> f64 {
-    let dx = amount_in * 1_000_000.0; // convert to u<token>
-    let numerator = reserve_out * dx * 997.0;
-    let denominator = reserve_in * 1000.0 + dx * 997.0;
-    (numerator / denominator) / 1_000_000.0 // back to base units
+pub fn simulate_swap_math(amount_in: f64, reserve_in: f64, reserve_out: f64, fee: f64) -> f64 {
+    let dx = amount_in * 1_000_000.0; // to base units
+    let fee_factor = 1.0 - fee;
+    let numerator = reserve_out * dx * fee_factor;
+    let denominator = reserve_in * 1.0 + dx * fee_factor;
+    (numerator / denominator) / 1_000_000.0
 }
 
 // This is the way back (Osmosis Complexity Layer)

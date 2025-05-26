@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use solana_sdk::{signature::Keypair, signer::Signer};
 
 use crate::{
-    log_manager::{load_trade_log, log_trade, read_log, write_log},
+    log_manager::{load_trade_log, log_trade, read_log, send_telegram_message, write_log},
     market_risk_analyzer::{
         PriceTouchAnalyzer, fetch_and_log_binance_history, fetch_current_binance_price_from_log,
     },
@@ -17,6 +17,9 @@ pub async fn jup_bot_start(
     dca_recover_percentage: f64,
     r_factor: f64, // Each DCA level increases USDC amount by r_factor (e.g., 0.5 for 50%)
 ) {
+
+    send_telegram_message(&format!("🟢 TradeRS-bot Online")).await.unwrap();
+
     dotenvy::from_path(".env").expect("Failed to load .env");
     let wallet_pk = env::var("SOL_WALLET_PK").expect("SOL_WALLET_PK not set in .env");
     let rpc_url = "https://api.mainnet-beta.solana.com";
@@ -39,6 +42,8 @@ pub async fn jup_bot_start(
     ))
     .unwrap();
     println!("{:?}", trade_log);
+
+    send_telegram_message(&format!("⌛ Loading Configuration... ")).await.unwrap();
 
     loop {
         let value = read_log(&format!(
@@ -105,7 +110,8 @@ pub async fn jup_bot_start(
                         &wallet_pubkey.to_string(),
                         "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
                     )
-                    .await * multiplier;
+                    .await
+                        * multiplier;
 
                     match risk_label.as_str() {
                         "🔴 HIGH-RISK" => {
@@ -182,13 +188,23 @@ pub async fn jup_bot_start(
                             )
                             .unwrap();
 
+                            // Telegram notificator
+                            send_telegram_message(&format!(
+                                "🎉 *Buy successful!*\nReceived `{:.6}` *{}* in tx:\n`{}`",
+                                received_amount, left_asset, tx_signature
+                            ))
+                            .await
+                            .unwrap();
+
                             // Write the newly received SOL to the value file
+                            let current_val = value;
+                            let new_val = current_val + received_amount;
                             write_log(
                                 &format!(
                                     "logs/solana/pair_{}_{}_value.txt",
                                     left_asset, right_asset
                                 ),
-                                &received_amount.to_string(),
+                                &new_val.to_string(),
                             )
                             .unwrap();
 
@@ -226,26 +242,22 @@ pub async fn jup_bot_start(
                     trade_log.iter().collect()
                 };
 
-                let sol_holding: f64 = open_trades
-                    .iter()
-                    .map(|trade| trade.amount_token_b)
-                    .sum();
-                let paid_usdc: f64 = open_trades
-                    .iter()
-                    .map(|trade| trade.amount_token_a)
-                    .sum();
+                let sol_holding = read_log(&format!(
+                    "logs/solana/pair_{}_{}_value.txt",
+                    left_asset, right_asset
+                ))
+                .unwrap();
+                let paid_usdc: f64 = open_trades.iter().map(|trade| trade.amount_token_a).sum();
+                let average_entry_price = paid_usdc / sol_holding;
 
-                println!(
-                    "🔁 Holding: {:.6} SOL → ",
-                    sol_holding,
-                );
+                println!("🔁 Holding: {:.6} SOL → ", sol_holding,);
 
                 // === 2. Get quote for selling that SOL to USDC ===
                 let amount_lamports = (sol_holding * 1_000_000_000.0) as u64;
                 let quote_url = format!(
                     "https://quote-api.jup.ag/v6/quote?inputMint={}&outputMint={}&amount={}&slippageBps={}",
-                    left_asset,   // SOL
-                    right_asset,  // USDC
+                    left_asset,  // SOL
+                    right_asset, // USDC
                     amount_lamports,
                     50 // 0.5% slippage tolerance
                 );
@@ -365,8 +377,13 @@ pub async fn jup_bot_start(
                                 &wallet_pubkey.to_string(),
                                 "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
                             )
-                            .await * tmp_multip)
+                            .await
+                                * tmp_multip)
                                 * r_factor;
+                            if dca_amount < 5.0 {
+                                println!("⚠️ DCA amount too small ({:.2}). Skipping.", dca_amount);
+                                continue;
+                            }
                             println!("🔁 DCA Buy: Investing {:.2} USDC", dca_amount);
 
                             while trade_retries > 0 {

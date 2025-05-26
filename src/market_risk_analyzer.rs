@@ -137,9 +137,9 @@ impl PriceTouchAnalyzer {
 
         // The more the target price has been hit before, the safer the entry now
         let (risk_label, position_multiplier) = match touch_count {
-            0..=2 => ("🔴 HIGH-RISK", 0.07), // Very rare — target might not be realistic
-            3..=6 => ("🟡 MODERATE", 0.20),  // Possible, but still risky
-            7..=15 => ("🟢 SAFE", 0.35),   // Often touched — reliable zone
+            0..=3 => ("🔴 HIGH-RISK", 0.07), // Very rare — target might not be realistic
+            4..=7 => ("🟡 MODERATE", 0.20),  // Possible, but still risky
+            8..=15 => ("🟢 SAFE", 0.35),   // Often touched — reliable zone
             _ => ("✅ VERY SAFE", 0.46),      // Heavily tested — highly probable to hit
         };
 

@@ -1,5 +1,6 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use std::env;
 use std::path::Path;
 use std::{
     fs::{File, OpenOptions},
@@ -81,3 +82,38 @@ pub fn load_trade_log(file_path: &str) -> io::Result<Vec<Trade>> {
         Ok(Vec::new())
     }
 }
+
+// Start of Telegram API
+
+pub async fn send_telegram_message(message: &str) -> Result<(), reqwest::Error> {
+    dotenvy::from_path(".env").expect("Failed to load .env");
+
+    let telegram_http_api = env::var("TELEGRAM_HTTP_API").expect("TELEGRAM_HTTP_API not set in .env");
+    let telegram_chat_id = env::var("TELEGRAM_CHAT_ID").expect("TELEGRAM_CHAT_ID not set in .env");
+
+    let url = format!("https://api.telegram.org/bot{}/sendMessage", telegram_http_api);
+
+    let client = reqwest::Client::new();
+    let res = client
+        .post(&url)
+        .form(&[
+            ("chat_id", telegram_chat_id),
+            ("text", message.to_string()),
+            ("parse_mode", "Markdown".to_string()),
+        ])
+        .send()
+        .await?;
+
+    if res.status().is_success() {
+        println!("✅ Message sent to Telegram!");
+    } else {
+        eprintln!(
+            "❌ Failed to send: {}",
+            res.text().await.unwrap_or_default()
+        );
+    }
+
+    Ok(())
+}
+
+// End of Telegram API
