@@ -16,9 +16,11 @@ pub async fn jup_bot_start(
     sell_percentage: f64,
     dca_recover_percentage: f64,
     r_factor: f64, // Each DCA level increases USDC amount by r_factor (e.g., 0.5 for 50%)
+    trading_flag: std::sync::Arc<tokio::sync::Mutex<bool>>,
 ) {
-
-    send_telegram_message(&format!("🟢 TradeRS-bot Online")).await.unwrap();
+    send_telegram_message(&format!("🟢 TradeRS-bot Online"))
+        .await
+        .unwrap();
 
     dotenvy::from_path(".env").expect("Failed to load .env");
     let wallet_pk = env::var("SOL_WALLET_PK").expect("SOL_WALLET_PK not set in .env");
@@ -43,9 +45,23 @@ pub async fn jup_bot_start(
     .unwrap();
     println!("{:?}", trade_log);
 
-    send_telegram_message(&format!("⌛ Loading Configuration... ")).await.unwrap();
+    send_telegram_message(&format!("⌛ Loading Configuration... "))
+        .await
+        .unwrap();
 
     loop {
+        let keep_running = {
+            let flag = trading_flag.lock().await;
+            *flag
+        };
+
+        if !keep_running {
+            println!("🛑 Trading Succesfully Stop.");
+            send_telegram_message("🛑 Trading Succesfully Stop.")
+                .await
+                .ok();
+            break;
+        }
         let value = read_log(&format!(
             "logs/solana/pair_{left_asset}_{right_asset}_value.txt"
         ))

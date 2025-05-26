@@ -15,3 +15,8 @@ This table outlines suggested capital usage, DCA scaling, and risk exposure acro
 | $10,000       | $750           | $375.00     | $187.50     | <8%                      | ✅ Ideal scaling      |
 
 > 💡 **DCA Level 1 and Level 2** represent recovery steps on price dips. Risk represents the max capital exposed if DCA is fully triggered before recovery.
+
+
+
+service path:
+/etc/systemd/system/tradeRS_Bot_Controller.service

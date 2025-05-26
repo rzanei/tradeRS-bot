@@ -606,3 +606,28 @@ pub async fn jupiter_swap(
 fn token_amount_to_ui_units(amount: f64, decimals: u8) -> u64 {
     (amount * 10_f64.powi(decimals as i32)) as u64
 }
+
+pub async fn run_jupiter_bot(trading_flag: std::sync::Arc<tokio::sync::Mutex<bool>>) {
+    let left_asset = "So11111111111111111111111111111111111111112";
+    let right_asset = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+
+    let sell_percentage: f64 = 1.0;
+    let dca_recover_percentage: f64 = 5.0;
+    let r_factor: f64 = 0.5;
+
+    println!("Starting Jupiter Bot [{left_asset}/{right_asset}] ...");
+    println!("Running strategy with parameters:");
+    println!("- sell_percentage: {}%", sell_percentage);
+    println!("- dca_recover_percentage: {}%", dca_recover_percentage);
+    println!("- r_factor: {}%", r_factor);
+
+    crate::jupiter_strategy_start::jup_bot_start(
+        left_asset,
+        right_asset,
+        sell_percentage,
+        dca_recover_percentage,
+        r_factor,
+        trading_flag
+    )
+    .await;
+}
