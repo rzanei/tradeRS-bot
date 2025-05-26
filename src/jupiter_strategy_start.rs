@@ -45,10 +45,6 @@ pub async fn jup_bot_start(
     .unwrap();
     println!("{:?}", trade_log);
 
-    send_telegram_message(&format!("⌛ Loading Configuration... "))
-        .await
-        .unwrap();
-
     loop {
         let keep_running = {
             let flag = trading_flag.lock().await;
@@ -346,7 +342,12 @@ pub async fn jup_bot_start(
                                         Some(current_dca_level),
                                     )
                                     .unwrap();
-
+                                    send_telegram_message(&format!(
+                                        "🚀 *Sell successful!*\nReceived `{:.6}` Selling: *{}* Sol`",
+                                        usdc_received_actual, sol_holding
+                                    ))
+                                    .await
+                                    .unwrap();
                                     write_log(
                                         &format!(
                                             "logs/solana/pair_{}_{}_value.txt",
