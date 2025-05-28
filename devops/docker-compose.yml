@@ -1,0 +1,23 @@
+
+version: '3.8'
+
+services:
+  solana-container:
+    image: linux-ubuntu-base:0.0.1
+    container_name: TradeRS-Bot
+    command: ["bash", "/start_listener.sh"]
+    networks:
+      - solana-net
+    volumes:
+    # TODO
+
+    ports:
+    # TODO
+    restart: always
+    tty: true
+    stdin_open: true
+    privileged: true
+
+networks:
+  solana-net:
+    driver: bridge
