@@ -22,7 +22,11 @@ pub async fn jup_bot_start(
         .await
         .unwrap();
 
-    dotenvy::from_path(".env").expect("Failed to load .env");
+    if let Err(e) = dotenvy::from_path(".env") {
+        if cfg!(debug_assertions) {
+            eprintln!("⚠️  .env file not found: {e}");
+        }
+    }
     let wallet_pk = env::var("SOL_WALLET_PK").expect("SOL_WALLET_PK not set in .env");
     let rpc_url = "https://api.mainnet-beta.solana.com";
 

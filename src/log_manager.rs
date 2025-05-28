@@ -4,11 +4,11 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::path::Path;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use std::{
     fs::{File, OpenOptions},
     io::{self, Read, Write},
 };
+use tokio::sync::Mutex;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Trade {
@@ -106,7 +106,11 @@ struct Chat {
 }
 
 pub async fn telegram_command_listener(trading_flag: Arc<Mutex<bool>>) {
-    dotenvy::from_path(".env").expect("Failed to load .env");
+    if let Err(e) = dotenvy::from_path(".env") {
+        if cfg!(debug_assertions) {
+            eprintln!("⚠️  .env file not found: {e}");
+        }
+    }
 
     let client = Client::new();
     let mut last_update_id: i64 = 0;
@@ -179,8 +183,11 @@ pub async fn telegram_command_listener(trading_flag: Arc<Mutex<bool>>) {
 }
 
 pub async fn send_telegram_message(message: &str) -> Result<(), reqwest::Error> {
-    dotenvy::from_path(".env").expect("Failed to load .env");
-
+    if let Err(e) = dotenvy::from_path(".env") {
+        if cfg!(debug_assertions) {
+            eprintln!("⚠️  .env file not found: {e}");
+        }
+    }
     let telegram_http_api =
         env::var("TELEGRAM_HTTP_API").expect("TELEGRAM_HTTP_API not set in .env");
     let telegram_chat_id = env::var("TELEGRAM_CHAT_ID").expect("TELEGRAM_CHAT_ID not set in .env");
