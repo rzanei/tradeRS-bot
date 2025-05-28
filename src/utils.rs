@@ -1,12 +1,13 @@
-use reqwest;
-use reqwest::Error;
-use serde::{Deserialize, Serialize};
+// Common Deps
+use base64::{Engine as _, engine::general_purpose};
+use reqwest::{Client, Error};
+use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::str::FromStr;
 use tokio::time::{Duration, sleep};
 
-use base64::{Engine as _, engine::general_purpose};
-use bip39::Mnemonic;
+// Cosmos Deps
 use cosmrs::{
     Coin, Denom,
     crypto::secp256k1::SigningKey,
@@ -16,8 +17,19 @@ use osmosis_std::types::osmosis::{
     gamm::v1beta1::MsgSwapExactAmountIn, poolmanager::v1beta1::SwapAmountInRoute,
 };
 use prost::Message;
-use reqwest::Client;
-use std::str::FromStr;
+use std::error::Error as StdError;
+
+// Solana Deps
+use solana_client::nonblocking::rpc_client::RpcClient;
+use solana_client::rpc_request::TokenAccountsFilter;
+use solana_sdk::{
+    native_token::lamports_to_sol,
+    pubkey::Pubkey,
+    signature::{Keypair, Signer},
+    transaction::VersionedTransaction,
+};
+
+use spl_associated_token_account::get_associated_token_address;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct PoolAsset {
@@ -53,8 +65,6 @@ struct BalancesResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct BaseAccount {
-    pub address: String,
-    pub pub_key: Option<serde_json::Value>,
     pub account_number: String,
     pub sequence: String,
 }
@@ -64,6 +74,7 @@ pub struct AccountWrapper {
     pub account: BaseAccount,
 }
 
+// COSMOS UTILS START
 pub async fn get_pool_assets(
     pool_id: &str,
 ) -> Result<(PoolAsset, PoolAsset), Box<dyn std::error::Error>> {
@@ -197,8 +208,8 @@ pub async fn pool_swap(
         (amount_b, amount_a)
     };
 
-    let estimated_out = simulate_swap_math(amount_in, reserve_in, reserve_out);
-    let min_out = (estimated_out * 0.995) * (1.0 - slippage_tolerance);
+    let estimated_out = simulate_swap_math(amount_in, reserve_in, reserve_out, 0.003);
+    let min_out = estimated_out * (1.0 - slippage_tolerance);
 
     // === Print the math ===
     println!("\n📊 Swap Preview:");
@@ -390,13 +401,12 @@ pub async fn wait_for_tx_confirmation(
     ))
 }
 
-
-
-pub fn simulate_swap_math(amount_in: f64, reserve_in: f64, reserve_out: f64) -> f64 {
-    let dx = amount_in * 1_000_000.0; // convert to u<token>
-    let numerator = reserve_out * dx * 997.0;
-    let denominator = reserve_in * 1000.0 + dx * 997.0;
-    (numerator / denominator) / 1_000_000.0 // back to base units
+pub fn simulate_swap_math(amount_in: f64, reserve_in: f64, reserve_out: f64, fee: f64) -> f64 {
+    let dx = amount_in * 1_000_000.0; // to base units
+    let fee_factor = 1.0 - fee;
+    let numerator = reserve_out * dx * fee_factor;
+    let denominator = reserve_in * 1.0 + dx * fee_factor;
+    (numerator / denominator) / 1_000_000.0
 }
 
 // This is the way back (Osmosis Complexity Layer)
@@ -464,3 +474,160 @@ pub async fn simulate_swap_via_lcd(
     Err("No swap result in simulation response".into())
 }
 
+// SOLANA UTILS START
+
+pub async fn sol_get_sol_balance(
+    rpc_url: &str,
+    wallet_pubkey: &Pubkey,
+) -> Result<f64, Box<dyn std::error::Error>> {
+    let client = RpcClient::new(rpc_url.to_string());
+
+    let lamports = client.get_balance(wallet_pubkey).await?;
+    println!("🪙 Raw lamports: {}", lamports);
+
+    let sol = lamports_to_sol(lamports);
+    Ok(sol)
+}
+
+pub async fn get_usdc_balance(wallet_address: &str, usdc_mint: &str) -> f64 {
+    // USDC Mint on Solana mainnet
+    let rpc_url = "https://api.mainnet-beta.solana.com";
+
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "getTokenAccountsByOwner",
+        "params": [
+            wallet_address,
+            { "mint": usdc_mint },
+            { "encoding": "jsonParsed" }
+        ]
+    });
+
+    let client = Client::new();
+    let res = client.post(rpc_url).json(&body).send().await.unwrap();
+
+    let json: serde_json::Value = res.json().await.unwrap();
+
+    let accounts = json["result"]["value"].as_array().ok_or("No accounts found").unwrap();
+
+    let mut total_usdc = 0.0;
+    for account in accounts {
+        if let Some(amount_str) = account["account"]["data"]["parsed"]["info"]["tokenAmount"]["uiAmount"]
+            .as_f64()
+        {
+            total_usdc += amount_str;
+        }
+    }
+
+    total_usdc
+}
+
+pub async fn jupiter_swap(
+    rpc_url: &str,
+    input_mint: &str,
+    output_mint: &str,
+    amount: f64,
+    slippage_bps: u64,
+    user_keypair: &Keypair,
+) -> Result<(f64, String), Box<dyn StdError>> {
+    let user_pubkey = user_keypair.pubkey();
+    let client = Client::new();
+
+    // Convert amount based on input token decimals
+    let input_decimals = if input_mint == "So11111111111111111111111111111111111111112" {
+        9 // SOL
+    } else {
+        6 // USDC or others
+    };
+    let amount_in_ui_units = token_amount_to_ui_units(amount, input_decimals);
+
+    // === 1. Fetch quote
+    let quote_url = format!(
+        "https://quote-api.jup.ag/v6/quote?inputMint={}&outputMint={}&amount={}&slippageBps={}",
+        input_mint, output_mint, amount_in_ui_units, slippage_bps
+    );
+
+    let quote_resp = client.get(&quote_url).send().await?.error_for_status()?;
+    let quote_json: serde_json::Value = quote_resp.json().await?;
+    println!("💸 Expected output: {}", quote_json["outAmount"]);
+
+    // Parse raw output amount (in minor units)
+    let out_amount_raw = quote_json["outAmount"]
+        .as_str()
+        .ok_or("Missing outAmount")?
+        .parse::<f64>()?;
+
+    // Convert based on output token decimals
+    let output_decimals = if output_mint == "So11111111111111111111111111111111111111112" {
+        9 // SOL
+    } else {
+        6 // USDC or others
+    };
+    let out_amount = out_amount_raw / 10f64.powi(output_decimals as i32);
+
+    // === 2. Build swap request using full quote
+    let swap_body = serde_json::json!({
+        "quoteResponse": quote_json,
+        "userPublicKey": user_pubkey.to_string(),
+        "wrapUnwrapSOL": true
+    });
+
+    println!("🔍 Sending swap body: {}", swap_body);
+
+    // === 3. Call Jupiter swap API
+    let swap_resp = client
+        .post("https://quote-api.jup.ag/v6/swap")
+        .json(&swap_body)
+        .send()
+        .await?
+        .error_for_status()?;
+
+    let swap_json: serde_json::Value = swap_resp.json().await?;
+    let tx_base64 = swap_json["swapTransaction"]
+        .as_str()
+        .ok_or("Missing swapTransaction field")?;
+
+    // === 4. Decode, sign, and send transaction
+    let tx_bytes = base64::decode(tx_base64)?;
+    let mut tx: VersionedTransaction = bincode::deserialize(&tx_bytes)?;
+    let sig = user_keypair.sign_message(&tx.message.serialize());
+    tx.signatures[0] = sig;
+
+    let rpc = RpcClient::new(rpc_url.to_string());
+    let tx_signature = rpc.send_and_confirm_transaction(&tx).await?;
+
+    println!("✅ Swap submitted! Signature: {}", tx_signature);
+
+    // Return out_amount in proper units (SOL or USDC), and tx signature
+    Ok((out_amount, tx_signature.to_string()))
+}
+
+fn token_amount_to_ui_units(amount: f64, decimals: u8) -> u64 {
+    (amount * 10_f64.powi(decimals as i32)) as u64
+}
+
+pub async fn run_jupiter_bot(trading_flag: std::sync::Arc<tokio::sync::Mutex<bool>>) {
+    let left_asset = "So11111111111111111111111111111111111111112";
+    let right_asset = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+
+    let sell_percentage: f64 = 1.0;
+    let dca_recover_percentage: f64 = 5.0;
+    let r_factor: f64 = 0.5;
+
+    println!("Starting Jupiter Bot [{left_asset}/{right_asset}] ...");
+    println!("Running strategy with parameters:");
+    println!("- sell_percentage: {}%", sell_percentage);
+    println!("- dca_recover_percentage: {}%", dca_recover_percentage);
+    println!("- r_factor: {}%", r_factor);
+
+    crate::jupiter_strategy_start::jup_bot_start(
+        left_asset,
+        right_asset,
+        sell_percentage,
+        dca_recover_percentage,
+        r_factor,
+        trading_flag
+    )
+    .await;
+}
