@@ -611,8 +611,8 @@ pub async fn run_jupiter_bot(trading_flag: std::sync::Arc<tokio::sync::Mutex<boo
     let left_asset = "So11111111111111111111111111111111111111112";
     let right_asset = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 
-    let sell_percentage: f64 = 1.0;
-    let dca_recover_percentage: f64 = 5.0;
+    let sell_percentage: f64 = 2.3;
+    let dca_recover_percentage: f64 = 3.5;
     let r_factor: f64 = 0.5;
 
     println!("Starting Jupiter Bot [{left_asset}/{right_asset}] ...");

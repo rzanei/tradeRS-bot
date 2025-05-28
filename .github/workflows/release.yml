@@ -1,0 +1,40 @@
+name: Rust Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'     # Triggers on tags like v1.0.0-rc1
+
+jobs:
+  build-and-release:
+    name: Build and Release TradeRS Bot binary
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Rust
+      uses: actions/setup-rust@v1
+      with:
+        rust-version: stable
+
+    - name: Extract tag version
+      id: vars
+      run: echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+    - name: Build release binary
+      run: |
+        cargo build --release
+        mkdir -p dist
+        cp target/release/traders-bot dist/traders-bot-${{ steps.vars.outputs.version }}-linux-amd64
+        sha256sum dist/traders-bot-${{ steps.vars.outputs.version }}-linux-amd64 > dist/SHA256SUMS-${{ steps.vars.outputs.version }}.txt
+
+    - name: Upload Release to GitHub
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          dist/traders-bot-${{ steps.vars.outputs.version }}-linux-amd64
+          dist/SHA256SUMS-${{ steps.vars.outputs.version }}.txt
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

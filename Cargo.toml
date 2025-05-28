@@ -1,5 +1,5 @@
 [package]
-name = "osmo-auto-rs"
+name = "tradeRS-bot"
 version = "0.1.0"
 edition = "2024"
 
