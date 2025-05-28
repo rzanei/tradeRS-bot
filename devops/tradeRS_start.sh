@@ -3,7 +3,7 @@ set -euo pipefail
 
 TOKEN="${GITHUB_TOKEN:?Missing GITHUB_TOKEN}"
 REPO="rzanei/tradeRS-bot"
-VERSION="v0.0.5-rc1"
+VERSION="${VERSION:?Missing GITHUB_TOKEN}"
 ASSET_NAME="tradeRS-bot-${VERSION}-linux-amd64"
 DEST_NAME="tradeRS-bot"
 
@@ -30,4 +30,4 @@ curl -L \
 
 chmod +x "$DEST_NAME"
 echo "✅ Done: $DEST_NAME is ready"
-exec /usr/local/bin/${BINARY_NAME}
+mv "$DEST_NAME" /usr/local/bin/tradeRS-bot

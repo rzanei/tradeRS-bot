@@ -8,15 +8,15 @@ use std::str::FromStr;
 use tokio::time::{Duration, sleep};
 
 // Cosmos Deps
-use cosmrs::{
-    Coin, Denom,
-    crypto::secp256k1::SigningKey,
-    tx::{self, Fee, SignDoc, SignerInfo},
-};
-use osmosis_std::types::osmosis::{
-    gamm::v1beta1::MsgSwapExactAmountIn, poolmanager::v1beta1::SwapAmountInRoute,
-};
-use prost::Message;
+// use cosmrs::{
+//     Coin, Denom,
+//     crypto::secp256k1::SigningKey,
+//     tx::{self, Fee, SignDoc, SignerInfo},
+// };
+// use osmosis_std::types::osmosis::{
+//     gamm::v1beta1::MsgSwapExactAmountIn, poolmanager::v1beta1::SwapAmountInRoute,
+// };
+// use prost::Message;
 use std::error::Error as StdError;
 
 // Solana Deps
@@ -176,135 +176,135 @@ pub async fn get_token_balance(
     Err(format!("Token {} not found in wallet", denom).into())
 }
 
-pub async fn pool_swap(
-    address: &str,
-    pool_id: &str,
-    input_token_denom: &str,
-    output_token_denom: &str,
-    amount_in: f64,
-    slippage_tolerance: f64,
-) -> Result<(u64, u64, cosmrs::Any), Box<dyn std::error::Error>> {
-    // === Fetch account_number and sequence ===
-    let client = Client::new();
-    let url = format!(
-        "https://osmosis-api.polkachu.com/cosmos/auth/v1beta1/accounts/{}",
-        address
-    );
-    let res = client.get(&url).send().await?;
-    let account_data: AccountWrapper = res.json().await?;
+// pub async fn pool_swap(
+//     address: &str,
+//     pool_id: &str,
+//     input_token_denom: &str,
+//     output_token_denom: &str,
+//     amount_in: f64,
+//     slippage_tolerance: f64,
+// ) -> Result<(u64, u64, cosmrs::Any), Box<dyn std::error::Error>> {
+//     // === Fetch account_number and sequence ===
+//     let client = Client::new();
+//     let url = format!(
+//         "https://osmosis-api.polkachu.com/cosmos/auth/v1beta1/accounts/{}",
+//         address
+//     );
+//     let res = client.get(&url).send().await?;
+//     let account_data: AccountWrapper = res.json().await?;
 
-    let account_number = account_data.account.account_number.parse::<u64>()?;
-    let sequence = account_data.account.sequence.parse::<u64>()?;
+//     let account_number = account_data.account.account_number.parse::<u64>()?;
+//     let sequence = account_data.account.sequence.parse::<u64>()?;
 
-    // === Get price and simulate output ===
-    let (asset_a, asset_b) = get_pool_assets(pool_id).await?;
-    let amount_a: f64 = asset_a.token.amount.parse()?;
-    let amount_b: f64 = asset_b.token.amount.parse()?;
+//     // === Get price and simulate output ===
+//     let (asset_a, asset_b) = get_pool_assets(pool_id).await?;
+//     let amount_a: f64 = asset_a.token.amount.parse()?;
+//     let amount_b: f64 = asset_b.token.amount.parse()?;
 
-    // Detect which is input/output
-    let (reserve_in, reserve_out) = if asset_a.token.denom == input_token_denom {
-        (amount_a, amount_b)
-    } else {
-        (amount_b, amount_a)
-    };
+//     // Detect which is input/output
+//     let (reserve_in, reserve_out) = if asset_a.token.denom == input_token_denom {
+//         (amount_a, amount_b)
+//     } else {
+//         (amount_b, amount_a)
+//     };
 
-    let estimated_out = simulate_swap_math(amount_in, reserve_in, reserve_out, 0.003);
-    let min_out = estimated_out * (1.0 - slippage_tolerance);
+//     let estimated_out = simulate_swap_math(amount_in, reserve_in, reserve_out, 0.003);
+//     let min_out = estimated_out * (1.0 - slippage_tolerance);
 
-    // === Print the math ===
-    println!("\n📊 Swap Preview:");
-    println!(
-        "  Input:             {:.6} {}",
-        amount_in, input_token_denom
-    );
-    println!(
-        "  Estimated Output:  {:.6} {}",
-        estimated_out, output_token_denom
-    );
-    println!("  Slippage Tolerance: {:.2}%", slippage_tolerance * 100.0);
-    println!(
-        "  Min Output (set in tx): {:.6} {}\n",
-        min_out, output_token_denom
-    );
+//     // === Print the math ===
+//     println!("\n📊 Swap Preview:");
+//     println!(
+//         "  Input:             {:.6} {}",
+//         amount_in, input_token_denom
+//     );
+//     println!(
+//         "  Estimated Output:  {:.6} {}",
+//         estimated_out, output_token_denom
+//     );
+//     println!("  Slippage Tolerance: {:.2}%", slippage_tolerance * 100.0);
+//     println!(
+//         "  Min Output (set in tx): {:.6} {}\n",
+//         min_out, output_token_denom
+//     );
 
-    // === Build MsgSwapExactAmountIn ===
-    let token_in_amount = ((amount_in * 1_000_000.0).round()) as u64;
-    let token_out_min_amount = (min_out * 1_000_000.0).round() as u64;
+//     // === Build MsgSwapExactAmountIn ===
+//     let token_in_amount = ((amount_in * 1_000_000.0).round()) as u64;
+//     let token_out_min_amount = (min_out * 1_000_000.0).round() as u64;
 
-    let msg = MsgSwapExactAmountIn {
-        sender: address.to_string().clone(),
-        routes: vec![SwapAmountInRoute {
-            pool_id: pool_id.parse::<u64>()?,
-            token_out_denom: output_token_denom.to_string(),
-        }],
-        token_in: Some(osmosis_std::types::cosmos::base::v1beta1::Coin {
-            denom: input_token_denom.to_string(),
-            amount: token_in_amount.to_string(),
-        }),
-        token_out_min_amount: token_out_min_amount.to_string(),
-    };
+//     let msg = MsgSwapExactAmountIn {
+//         sender: address.to_string().clone(),
+//         routes: vec![SwapAmountInRoute {
+//             pool_id: pool_id.parse::<u64>()?,
+//             token_out_denom: output_token_denom.to_string(),
+//         }],
+//         token_in: Some(osmosis_std::types::cosmos::base::v1beta1::Coin {
+//             denom: input_token_denom.to_string(),
+//             amount: token_in_amount.to_string(),
+//         }),
+//         token_out_min_amount: token_out_min_amount.to_string(),
+//     };
 
-    let msg_any = cosmrs::Any {
-        type_url: "/osmosis.gamm.v1beta1.MsgSwapExactAmountIn".to_string(),
-        value: msg.encode_to_vec(),
-    };
-    Ok((account_number, sequence, msg_any))
-}
+//     let msg_any = cosmrs::Any {
+//         type_url: "/osmosis.gamm.v1beta1.MsgSwapExactAmountIn".to_string(),
+//         value: msg.encode_to_vec(),
+//     };
+//     Ok((account_number, sequence, msg_any))
+// }
 
-pub async fn sign_tx_broadcast(
-    msg_any: cosmrs::Any,
-    public_key: cosmrs::crypto::PublicKey,
-    sequence: u64,
-    account_number: u64,
-    signing_key: &SigningKey,
-) -> Result<String, Box<dyn std::error::Error>> {
-    // === Construct Tx body ===
-    let tx_body = tx::Body::new(vec![msg_any], "", 0u32);
+// pub async fn sign_tx_broadcast(
+//     msg_any: cosmrs::Any,
+//     public_key: cosmrs::crypto::PublicKey,
+//     sequence: u64,
+//     account_number: u64,
+//     signing_key: &SigningKey,
+// ) -> Result<String, Box<dyn std::error::Error>> {
+//     // === Construct Tx body ===
+//     let tx_body = tx::Body::new(vec![msg_any], "", 0u32);
 
-    let fee = Coin {
-        denom: Denom::from_str("uosmo").unwrap(),
-        amount: 1000,
-    };
+//     let fee = Coin {
+//         denom: Denom::from_str("uosmo").unwrap(),
+//         amount: 1000,
+//     };
 
-    let gas_limit: u64 = 200_000;
-    let signer_info = SignerInfo::single_direct(Some(public_key), sequence);
-    let fee = Fee::from_amount_and_gas(fee, gas_limit);
-    let auth_info = tx::AuthInfo {
-        signer_infos: vec![signer_info],
-        fee,
-    };
+//     let gas_limit: u64 = 200_000;
+//     let signer_info = SignerInfo::single_direct(Some(public_key), sequence);
+//     let fee = Fee::from_amount_and_gas(fee, gas_limit);
+//     let auth_info = tx::AuthInfo {
+//         signer_infos: vec![signer_info],
+//         fee,
+//     };
 
-    let sign_doc = SignDoc::new(
-        &tx_body,
-        &auth_info,
-        &cosmrs::tendermint::chain::Id::from_str("osmosis-1").unwrap(),
-        account_number,
-    )?;
-    let tx_raw = sign_doc.sign(&signing_key)?;
+//     let sign_doc = SignDoc::new(
+//         &tx_body,
+//         &auth_info,
+//         &cosmrs::tendermint::chain::Id::from_str("osmosis-1").unwrap(),
+//         account_number,
+//     )?;
+//     let tx_raw = sign_doc.sign(&signing_key)?;
 
-    // === Broadcast transaction ===
-    let tx_bytes = tx_raw.to_bytes()?;
-    let base64_tx = general_purpose::STANDARD.encode(tx_bytes);
-    println!("Broadcast result: {}", base64_tx);
+//     // === Broadcast transaction ===
+//     let tx_bytes = tx_raw.to_bytes()?;
+//     let base64_tx = general_purpose::STANDARD.encode(tx_bytes);
+//     println!("Broadcast result: {}", base64_tx);
 
-    let res = reqwest::Client::new()
-        .post("https://osmosis-api.polkachu.com/cosmos/tx/v1beta1/txs")
-        .json(&serde_json::json!({
-            "tx_bytes": base64_tx,
-            "mode": "BROADCAST_MODE_SYNC"
-        }))
-        .send()
-        .await?;
+//     let res = reqwest::Client::new()
+//         .post("https://osmosis-api.polkachu.com/cosmos/tx/v1beta1/txs")
+//         .json(&serde_json::json!({
+//             "tx_bytes": base64_tx,
+//             "mode": "BROADCAST_MODE_SYNC"
+//         }))
+//         .send()
+//         .await?;
 
-    let response_json: serde_json::Value = res.json().await?;
-    let txhash = response_json["tx_response"]["txhash"]
-        .as_str()
-        .ok_or("Missing txhash in response")?
-        .to_string();
+//     let response_json: serde_json::Value = res.json().await?;
+//     let txhash = response_json["tx_response"]["txhash"]
+//         .as_str()
+//         .ok_or("Missing txhash in response")?
+//         .to_string();
 
-    println!("✅ Broadcast txhash: {}", txhash);
-    Ok(txhash)
-}
+//     println!("✅ Broadcast txhash: {}", txhash);
+//     Ok(txhash)
+// }
 
 pub async fn check_tx_success(
     txhash: &str,
@@ -410,69 +410,69 @@ pub fn simulate_swap_math(amount_in: f64, reserve_in: f64, reserve_out: f64, fee
 }
 
 // This is the way back (Osmosis Complexity Layer)
-pub async fn simulate_swap_via_lcd(
-    msg_any: cosmrs::Any,
-    public_key: cosmrs::crypto::PublicKey,
-    sequence: u64,
-    account_number: u64,
-    signing_key: &SigningKey,
-) -> Result<f64, Box<dyn std::error::Error>> {
-    let tx_body = tx::Body::new(vec![msg_any.clone()], "", 0u32);
+// pub async fn simulate_swap_via_lcd(
+//     msg_any: cosmrs::Any,
+//     public_key: cosmrs::crypto::PublicKey,
+//     sequence: u64,
+//     account_number: u64,
+//     signing_key: &SigningKey,
+// ) -> Result<f64, Box<dyn std::error::Error>> {
+//     let tx_body = tx::Body::new(vec![msg_any.clone()], "", 0u32);
 
-    let fee = Coin {
-        denom: Denom::from_str("uosmo")?,
-        amount: 3000,
-    };
+//     let fee = Coin {
+//         denom: Denom::from_str("uosmo")?,
+//         amount: 3000,
+//     };
 
-    let gas_limit: u64 = 200_000;
-    let signer_info = SignerInfo::single_direct(Some(public_key), sequence);
-    let auth_info = tx::AuthInfo {
-        signer_infos: vec![signer_info],
-        fee: Fee::from_amount_and_gas(fee.clone(), gas_limit),
-    };
+//     let gas_limit: u64 = 200_000;
+//     let signer_info = SignerInfo::single_direct(Some(public_key), sequence);
+//     let auth_info = tx::AuthInfo {
+//         signer_infos: vec![signer_info],
+//         fee: Fee::from_amount_and_gas(fee.clone(), gas_limit),
+//     };
 
-    let sign_doc = SignDoc::new(
-        &tx_body,
-        &auth_info,
-        &cosmrs::tendermint::chain::Id::from_str("osmosis-1")?,
-        account_number,
-    )?;
-    let tx_raw = sign_doc.sign(&signing_key)?;
+//     let sign_doc = SignDoc::new(
+//         &tx_body,
+//         &auth_info,
+//         &cosmrs::tendermint::chain::Id::from_str("osmosis-1")?,
+//         account_number,
+//     )?;
+//     let tx_raw = sign_doc.sign(&signing_key)?;
 
-    // === Simulate endpoint ===
-    let tx_bytes = tx_raw.to_bytes()?;
-    let base64_tx = general_purpose::STANDARD.encode(tx_bytes);
+//     // === Simulate endpoint ===
+//     let tx_bytes = tx_raw.to_bytes()?;
+//     let base64_tx = general_purpose::STANDARD.encode(tx_bytes);
 
-    let simulate_url = "https://osmosis-api.polkachu.com/cosmos/tx/v1beta1/simulate";
+//     let simulate_url = "https://osmosis-api.polkachu.com/cosmos/tx/v1beta1/simulate";
 
-    let res = reqwest::Client::new()
-        .post(simulate_url)
-        .json(&serde_json::json!({ "tx_bytes": base64_tx }))
-        .send()
-        .await?;
+//     let res = reqwest::Client::new()
+//         .post(simulate_url)
+//         .json(&serde_json::json!({ "tx_bytes": base64_tx }))
+//         .send()
+//         .await?;
 
-    let json: serde_json::Value = res.json().await?;
+//     let json: serde_json::Value = res.json().await?;
 
-    // Extract logs from simulation preview
-    if let Some(logs) = json["result"]["events"].as_array() {
-        for event in logs {
-            if event["type"] == "token_swapped" {
-                for attr in event["attributes"].as_array().unwrap_or(&vec![]) {
-                    if attr["key"] == "tokens_out" {
-                        let value = attr["value"].as_str().unwrap_or("");
-                        if value.contains("uosmo") {
-                            let amount_str = value.replace("uosmo", "");
-                            let amount = amount_str.parse::<f64>()? / 1_000_000.0;
-                            return Ok(amount);
-                        }
-                    }
-                }
-            }
-        }
-    }
+//     // Extract logs from simulation preview
+//     if let Some(logs) = json["result"]["events"].as_array() {
+//         for event in logs {
+//             if event["type"] == "token_swapped" {
+//                 for attr in event["attributes"].as_array().unwrap_or(&vec![]) {
+//                     if attr["key"] == "tokens_out" {
+//                         let value = attr["value"].as_str().unwrap_or("");
+//                         if value.contains("uosmo") {
+//                             let amount_str = value.replace("uosmo", "");
+//                             let amount = amount_str.parse::<f64>()? / 1_000_000.0;
+//                             return Ok(amount);
+//                         }
+//                     }
+//                 }
+//             }
+//         }
+//     }
 
-    Err("No swap result in simulation response".into())
-}
+//     Err("No swap result in simulation response".into())
+// }
 
 // SOLANA UTILS START
 

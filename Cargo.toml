@@ -15,12 +15,12 @@ dotenvy = "0.15"
 base64 = "0.22.1"
 
 # Cosmos Deps
-cosmrs = "0.22.0"
-osmosis-std = { git = "https://github.com/osmosis-labs/osmosis-rust", branch = "main" }
-bip39 = "2.1.0"
-bip32 = { version = "0.5.3", features = ["secp256k1"] }
-prost = "0.13.5"
-prost-types = "0.13.5"
+# cosmrs = "0.22.0"
+# osmosis-std = { git = "https://github.com/osmosis-labs/osmosis-rust", branch = "main" }
+# bip39 = "2.1.0"
+# bip32 = { version = "0.5.3", features = ["secp256k1"] }
+# prost = "0.13.5"
+# prost-types = "0.13.5"
 
 
 # Solana Deps
