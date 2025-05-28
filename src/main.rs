@@ -1,10 +1,5 @@
-use std::{
-    io::{self, Write},
-    thread::sleep,
-    time::Duration,
-};
+use std::{time::Duration};
 
-use jupiter_strategy_start::jup_bot_start;
 use log_manager::telegram_command_listener;
 use utils::run_jupiter_bot;
 // use osmosis_strategy_start::osmo_bot_start;
@@ -106,18 +101,32 @@ use std::sync::Arc;
 
 #[tokio::main]
 async fn main() {
+    
+    let left_asset = "So11111111111111111111111111111111111111112";
+    let right_asset = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+
+    let sell_percentage: f64 = 2.3;
+    let dca_recover_percentage: f64 = 3.5;
+    let r_factor: f64 = 0.5;
+
+    println!("Starting Jupiter Bot [{left_asset}/{right_asset}] ...");
+    println!("Running strategy with parameters:");
+    println!("- sell_percentage: {}%", sell_percentage);
+    println!("- dca_recover_percentage: {}%", dca_recover_percentage);
+    println!("- r_factor: {}%", r_factor);
+
     let trading_flag = Arc::new(Mutex::new(false));
 
     // Spawn Telegram command listener
     let listener_flag = trading_flag.clone();
     tokio::spawn(async move {
-        telegram_command_listener(listener_flag).await;
+        telegram_command_listener( left_asset, right_asset, sell_percentage, listener_flag).await;
     });
 
     loop {
         if *trading_flag.lock().await {
             let flag_clone = trading_flag.clone();
-            run_jupiter_bot(flag_clone).await;
+            run_jupiter_bot(left_asset, right_asset, sell_percentage, dca_recover_percentage, r_factor,flag_clone).await;
             *trading_flag.lock().await = false;
         }
 

@@ -105,7 +105,7 @@ struct Chat {
     id: i64,
 }
 
-pub async fn telegram_command_listener(trading_flag: Arc<Mutex<bool>>) {
+pub async fn telegram_command_listener(left_asset: &str, right_asset: &str, sell_percentage: f64, trading_flag: Arc<Mutex<bool>>) {
     // if let Err(e) = dotenvy::from_path(".env") {
     //     if cfg!(debug_assertions) {
     //         eprintln!("⚠️  .env file not found: {e}");
@@ -164,6 +164,20 @@ pub async fn telegram_command_listener(trading_flag: Arc<Mutex<bool>>) {
                                                     .ok();
                                                 }
                                             }
+                                            "/market_status" => {
+                                                match generate_market_status(left_asset, right_asset, sell_percentage).await {
+                                                    Ok(summary) => {
+                                                        send_telegram_message(&summary).await.ok();
+                                                    }
+                                                    Err(e) => {
+                                                        send_telegram_message(&format!(
+                                                            "❌ Failed to get market status: {e}"
+                                                        ))
+                                                        .await
+                                                        .ok();
+                                                    }
+                                                }
+                                            }
 
                                             _ => {}
                                         }
@@ -218,6 +232,58 @@ pub async fn send_telegram_message(message: &str) -> Result<(), reqwest::Error> 
     }
 
     Ok(())
+}
+
+pub async fn generate_market_status(left_asset: &str, right_asset: &str, sell_percentage: f64) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    use crate::log_manager::{load_trade_log, read_log};
+
+    let sol_holding = read_log(&format!(
+        "logs/solana/pair_{}_{}_value.txt",
+        left_asset, right_asset
+    ))?;
+
+    let trade_log = load_trade_log(&format!(
+        "logs/solana/pair_{}_{}_trade_history.json",
+        left_asset, right_asset
+    ))?;
+
+    let open_trades: Vec<&_> =
+        if let Some(last_sell_idx) = trade_log.iter().rposition(|t| t.trade_type == "sell") {
+            trade_log.iter().skip(last_sell_idx + 1).collect()
+        } else {
+            trade_log.iter().collect()
+        };
+
+    let paid_usdc: f64 = open_trades.iter().map(|trade| trade.amount_token_a).sum();
+
+    let amount_lamports = (sol_holding * 1_000_000_000.0) as u64;
+    let quote_url = format!(
+        "https://quote-api.jup.ag/v6/quote?inputMint={}&outputMint={}&amount={}&slippageBps={}",
+        left_asset, right_asset, amount_lamports, 50
+    );
+
+    let client = reqwest::Client::new();
+    let quote_resp = client.get(&quote_url).send().await?;
+    let quote_json: serde_json::Value = quote_resp.json().await?;
+    let out_amount_str = quote_json["outAmount"]
+        .as_str()
+        .ok_or("Missing outAmount")?;
+    let usdc_received = out_amount_str.parse::<f64>()? / 1_000_000.0;
+
+    let target_return = paid_usdc * (1.0 + sell_percentage / 100.0);
+    let price_change = if paid_usdc > 0.0 {
+        100.0 * (usdc_received / paid_usdc - 1.0)
+    } else {
+        0.0
+    };
+
+    Ok(format!(
+        "🔁 Holding: {:.6} SOL →\n\
+         🔁 Would return {:.6} USDC for selling {:.6} SOL\n\
+         🎯 Need at least {:.6} USDC to sell for profit (+{:.1}%)\n\
+         📉 Price is at {:+.2}%",
+        sol_holding, usdc_received, sol_holding, target_return, sell_percentage, price_change
+    ))
 }
 
 // End of Telegram API
