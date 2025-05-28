@@ -11,6 +11,7 @@ services:
       - ../.env
     volumes:
       - ./tradeRS_start.sh:/tradeRS_start.sh
+      - ../logs:/logs
     restart: always
     tty: true
     stdin_open: true
