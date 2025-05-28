@@ -17,6 +17,20 @@ This table outlines suggested capital usage, DCA scaling, and risk exposure acro
 > 💡 **DCA Level 1 and Level 2** represent recovery steps on price dips. Risk represents the max capital exposed if DCA is fully triggered before recovery.
 
 
+## Create a NEW Release!!
+```bash
+git tag vx.x.x-rcx
+git push origin vx.x.x-rcx
+```
+This will create a new dowloadable release, update the release version in the env file
 
-service path:
-/etc/systemd/system/tradeRS_Bot_Controller.service
+## Run Container
+after checking the env file!
+```bash
+docker-compose up -d
+```
+Run this in dev "/devops" path to deploy the container, this shoud load and start the bot in listening mode!
+From Telegram you should be able to controll the bot:
+/status --> Online/Offline
+/start_trading --> start the bot
+/stop_trading --> stop the bot
