@@ -28,14 +28,14 @@ jobs:
       run: |
         cargo build --release
         mkdir -p dist
-        cp target/release/traders-bot dist/traders-bot-${{ steps.vars.outputs.version }}-linux-amd64
-        sha256sum dist/traders-bot-${{ steps.vars.outputs.version }}-linux-amd64 > dist/SHA256SUMS-${{ steps.vars.outputs.version }}.txt
+        cp target/release/tradeRS-bot dist/tradeRS-bot-${{ steps.vars.outputs.version }}-linux-amd64
+        sha256sum dist/tradeRS-bot-${{ steps.vars.outputs.version }}-linux-amd64 > dist/SHA256SUMS-${{ steps.vars.outputs.version }}.txt
 
     - name: Upload Release to GitHub
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          dist/traders-bot-${{ steps.vars.outputs.version }}-linux-amd64
+          dist/tradeRS-bot-${{ steps.vars.outputs.version }}-linux-amd64
           dist/SHA256SUMS-${{ steps.vars.outputs.version }}.txt
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
